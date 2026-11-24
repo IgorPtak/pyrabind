@@ -115,4 +115,153 @@ if (requireNamespace("tibble", quietly = TRUE)) {
     stopifnot(max(abs(res_tb$scaled - c(4.0, 7.0, 10.0))) < 1e-12)
 }
 
+# 12. Smart pointers: std::shared_ptr and std::unique_ptr
+sp <- tm$make_shared_node(10L, "root")
+stopifnot(sp$id == 10L, sp$name == "root")
+stopifnot(tm$shared_node_use_count(sp) >= 1L)
+stopifnot(tm$retain_shared_node(sp) >= 1L)
+stopifnot(tm$bump_retained_node(5L) == 15L)
+stopifnot(sp$id == 15L)
+tm$clear_retained_node()
+
+tok <- tm$make_unique_token(7L)
+stopifnot(isTRUE(tok$active()))
+stopifnot(tm$consume_unique_token(tok) == 70L)
+err_moved_call <- tryCatch({
+    tm$consume_unique_token(tok)
+    FALSE
+}, error = function(e) TRUE)
+stopifnot(err_moved_call)
+err_moved_method <- tryCatch({
+    tok$active()
+    FALSE
+}, error = function(e) TRUE)
+stopifnot(err_moved_method)
+
+# 13. std::complex, std::chrono, std::list
+z1 <- tm$complex_add_mul(1 + 2i, 3 + 4i)
+stopifnot(abs(z1 - (-3 + 5i)) < 1e-12)
+z2 <- tm$complex_add_mul(2.0, 5.0)
+stopifnot(abs(z2 - (2 + 5i)) < 1e-12)
+
+d_sum <- tm$add_duration_ms(
+    as.difftime(0.25, units = "secs"),
+    as.difftime(750.0, units = "secs") / 1000.0
+)
+stopifnot(inherits(d_sum, "difftime"))
+stopifnot(abs(as.numeric(d_sum, units = "secs") - 1.0) < 1e-9)
+
+t0 <- as.POSIXct("2025-01-15 12:00:00", tz = "UTC")
+t1 <- tm$shift_timestamp(t0, as.difftime(30, units = "secs"))
+stopifnot(inherits(t1, "POSIXct"))
+stopifnot(abs(as.numeric(difftime(t1, t0, units = "secs")) - 30.0) < 1e-6)
+
+stopifnot(identical(tm$reverse_int_list(c(1L, 2L, 3L)), c(3L, 2L, 1L)))
+stopifnot(identical(tm$tag_str_list(c("a", "b"), "p:"), c("p:a", "p:b")))
+
+# 14. kw_only and call_guard
+stopifnot(tm$kw_combine(1L, b = 2L) == 125L)
+stopifnot(tm$kw_combine(a = 1L, b = 2L, c = 3L) == 123L)
+err_kw_pos <- tryCatch({
+    tm$kw_combine(1L, 2L)
+    FALSE
+}, error = function(e) TRUE)
+stopifnot(err_kw_pos)
+
+g0 <- tm$guard_counts()
+gw <- tm$guarded_work(10L)
+g1 <- tm$guard_counts()
+stopifnot(g1[[1L]] == g0[[1L]] + 1L)
+stopifnot(g1[[2L]] == g0[[2L]] + 1L)
+stopifnot(gw == 10L + g1[[1L]])
+
+# 15. Static properties and custom C++ exceptions
+stopifnot(tm$StaticBox$CONST_VAL == 42L)
+err_ro_static <- tryCatch({
+    tm$StaticBox$CONST_VAL <- 99L
+    FALSE
+}, error = function(e) TRUE)
+stopifnot(err_ro_static)
+
+stopifnot(tm$StaticBox$mutable_val == 10L)
+tm$StaticBox$mutable_val <- 25L
+stopifnot(tm$StaticBox$mutable_val == 25L)
+tm$StaticBox$mutable_val <- 10L
+
+stopifnot(tm$StaticBox$double_const == 84L)
+stopifnot(tm$StaticBox$computed == 100L)
+tm$StaticBox$computed <- 250L
+stopifnot(tm$StaticBox$computed == 250L)
+tm$StaticBox$computed <- 100L
+
+caught_domain <- tryCatch({
+    tm$fail_domain("bad domain input")
+    FALSE
+}, CustomDomainError = function(e) {
+    grepl("bad domain input", conditionMessage(e), fixed = TRUE)
+})
+stopifnot(isTRUE(caught_domain))
+
+# 16. Iterators (make_iterator, make_key_iterator, make_value_iterator)
+bag <- tm$NumberBag(c(10L, 20L, 30L), list(a = 1L, b = 2L))
+stopifnot(identical(unlist(as.list(bag$`__iter__`())), c(10L, 20L, 30L)))
+stopifnot(identical(unlist(as.list(bag$keys())), c("a", "b")))
+stopifnot(identical(unlist(as.list(bag$values())), c(1L, 2L)))
+items <- as.list(bag$items())
+stopifnot(length(items) == 2L)
+stopifnot(items[[1L]][[1L]] == "a", items[[1L]][[2L]] == 1L)
+stopifnot(items[[2L]][[1L]] == "b", items[[2L]][[2L]] == 2L)
+
+it <- bag$keys()
+stopifnot(it$`__next__`() == "a", it$`__next__`() == "b")
+stopped <- tryCatch({
+    it$`__next__`()
+    FALSE
+}, pyrabind_stop_iteration = function(e) TRUE)
+stopifnot(isTRUE(stopped))
+
+# 17. PYRABIND_MAKE_OPAQUE, bind_vector, and bind_map
+ov <- tm$OpaqueVec()
+ov$append(tm$OpaqueItem(1L, "one"))
+tm$push_opaque(ov, tm$OpaqueItem(2L, "two"))
+stopifnot(length(ov) == 2L)
+stopifnot(ov[[0L]]$tag == 1L, ov[[1L]]$label == "two")
+ov[[0L]] <- tm$OpaqueItem(9L, "nine")
+stopifnot(ov[[0L]]$tag == 9L, ov[[0L]]$label == "nine")
+popped <- ov$pop()
+stopifnot(popped$tag == 2L, length(ov) == 1L)
+ov$clear()
+stopifnot(length(ov) == 0L)
+
+om <- tm$OpaqueMap()
+om[["k1"]] <- tm$OpaqueItem(3L, "three")
+tm$set_opaque_entry(om, "k2", tm$OpaqueItem(4L, "four"))
+stopifnot(length(om) == 2L)
+stopifnot(isTRUE(om$`__contains__`("k2")))
+stopifnot(om[["k1"]]$tag == 3L, om[["k2"]]$label == "four")
+stopifnot(identical(unlist(as.list(om$keys())), c("k1", "k2")))
+om$`__delitem__`("k1")
+stopifnot(length(om) == 1L, !isTRUE(om$`__contains__`("k1")))
+
+# 18. Expanded operators (unary +, !, abs, %%, &, |, bitwise/in-place/hash)
+m0 <- tm$ModInt(0L)
+m3 <- tm$ModInt(3L)
+m5 <- tm$ModInt(5L)
+m6 <- tm$ModInt(6L)
+stopifnot((+m5)$value == 5L)
+stopifnot(identical(!m0, TRUE), identical(!m5, FALSE))
+stopifnot((m5 %% m3)$value == 2L)
+stopifnot((m6 & m3)$value == 2L)
+stopifnot((tm$ModInt(4L) | tm$ModInt(1L))$value == 5L)
+stopifnot(m6$`__xor__`(m3)$value == 5L)
+stopifnot(m3$`__lshift__`(tm$ModInt(2L))$value == 12L)
+stopifnot(tm$ModInt(12L)$`__rshift__`(tm$ModInt(2L))$value == 3L)
+stopifnot(m0$`__invert__`()$value == -1L)
+m5$`__iadd__`(m3)
+stopifnot(m5$value == 8L)
+m5$`__imod__`(m3)
+stopifnot(m5$value == 2L)
+stopifnot(is.numeric(tm$ModInt(7L)$`__hash__`()))
+stopifnot(abs(abs(tm$SignedScalar(-3.5)) - 3.5) < 1e-12)
+
 cat("All pyrabind R tests passed\n")

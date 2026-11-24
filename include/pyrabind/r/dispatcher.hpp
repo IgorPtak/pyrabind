@@ -22,13 +22,51 @@ struct overload_meta {
     rv_policy policy = rv_policy::automatic;
     bool method_flag = false;
     bool operator_flag = false;
+    std::size_t max_positional = static_cast<std::size_t>(-1);
     std::string doc_str;
     std::vector<arg_spec> args;
     std::vector<keep_alive_spec> keep_alives;
 };
 
+template <typename T> struct is_call_guard : std::false_type {};
+template <typename... Gs> struct is_call_guard<call_guard<Gs...>> : std::true_type {
+    using tuple_type = std::tuple<Gs...>;
+};
+
+template <typename... Ts> struct collect_call_guards;
+template <> struct collect_call_guards<> {
+    using type = std::tuple<>;
+};
+template <typename T, typename... Rest> struct collect_call_guards<T, Rest...> {
+    using CleanT = remove_cvref_t<T>;
+    using TailT = typename collect_call_guards<Rest...>::type;
+    static constexpr auto pick() noexcept {
+        if constexpr (is_call_guard<CleanT>::value) {
+            return std::type_identity<decltype(std::tuple_cat(
+                std::declval<typename is_call_guard<CleanT>::tuple_type>(),
+                std::declval<TailT>()))>{};
+        } else {
+            return std::type_identity<TailT>{};
+        }
+    }
+    using type = typename decltype(pick())::type;
+};
+
+template <typename GuardTuple, typename Fn> inline decltype(auto) invoke_with_guards(Fn&& fn) {
+    if constexpr (std::tuple_size_v<GuardTuple> == 0) {
+        return fn();
+    } else {
+        [[maybe_unused]] GuardTuple guards{};
+        return fn();
+    }
+}
+
 inline void apply_extra(overload_meta& meta, const rv_policy& p) noexcept {
     meta.policy = p;
+}
+template <rv_policy::value V>
+inline void apply_extra(overload_meta& meta, rv_policy::policy_tag<V>) noexcept {
+    meta.policy = rv_policy(V);
 }
 inline void apply_extra(overload_meta& meta, is_method) noexcept {
     meta.method_flag = true;
@@ -38,7 +76,10 @@ inline void apply_extra(overload_meta& meta, is_operator) noexcept {
 }
 inline void apply_extra(overload_meta&, is_implicit) noexcept {}
 inline void apply_extra(overload_meta&, is_arithmetic) noexcept {}
-inline void apply_extra(overload_meta&, kw_only) noexcept {}
+inline void apply_extra(overload_meta& meta, kw_only) noexcept {
+    meta.max_positional = meta.args.size();
+}
+template <typename... Gs> inline void apply_extra(overload_meta&, call_guard<Gs...>) noexcept {}
 
 inline void apply_extra(overload_meta& meta, const char* text) {
     if (text != nullptr) {
@@ -88,6 +129,9 @@ inline overload_meta collect_meta(std::size_t param_count, Extra&&... extra) {
             padded.push_back(std::move(a));
         }
         meta.args = std::move(padded);
+        if (meta.max_positional != static_cast<std::size_t>(-1)) {
+            meta.max_positional += missing_prefix;
+        }
     } else if (meta.args.empty() && param_count > 0) {
         meta.args.resize(param_count);
     }
@@ -96,13 +140,13 @@ inline overload_meta collect_meta(std::size_t param_count, Extra&&... extra) {
 
 template <std::size_t ParamCount>
 inline bool resolve_arguments(const call_args& cargs, std::size_t pos_offset,
-                              const std::vector<arg_spec>& specs,
+                              std::size_t max_positional, const std::vector<arg_spec>& specs,
                               std::array<SEXP, ParamCount>& resolved) {
     if (cargs.n_pos < pos_offset) {
         return false;
     }
     const std::size_t user_pos = cargs.n_pos - pos_offset;
-    if (user_pos > ParamCount) {
+    if (user_pos > ParamCount || user_pos > max_positional) {
         return false;
     }
     std::array<bool, ParamCount> filled{};
@@ -195,14 +239,14 @@ inline bool convert_tuple_args(
 template <typename Fn, typename ArgsTuple, std::size_t... Is, typename CastersTuple>
 inline decltype(auto) invoke_with_casters(Fn& fn, CastersTuple& casters,
                                           std::index_sequence<Is...>) {
-    return fn(static_cast<std::tuple_element_t<Is, ArgsTuple>>(std::get<Is>(casters).get())...);
+    return fn(static_cast<std::tuple_element_t<Is, ArgsTuple>&&>(std::get<Is>(casters).get())...);
 }
 
 template <typename Fn, typename Cls, typename ArgsTuple, std::size_t... Is, typename CastersTuple>
 inline decltype(auto) invoke_method_with_casters(Fn& fn, Cls& self, CastersTuple& casters,
                                                  std::index_sequence<Is...>) {
     return (self.*
-            fn)(static_cast<std::tuple_element_t<Is, ArgsTuple>>(std::get<Is>(casters).get())...);
+            fn)(static_cast<std::tuple_element_t<Is, ArgsTuple>&&>(std::get<Is>(casters).get())...);
 }
 
 template <typename Fn, typename... Extra>
@@ -212,12 +256,14 @@ inline overload_record make_function_overload(Fn&& fn, Extra&&... extra) {
     static_assert(!Traits::is_member, "use make_method_overload for member functions");
     using ArgsTuple = typename Traits::args_tuple;
     using RetT = typename Traits::return_type;
+    using GuardTuple = typename collect_call_guards<Extra...>::type;
     constexpr std::size_t kArity = Traits::arity;
 
     overload_meta meta = collect_meta(kArity, std::forward<Extra>(extra)...);
 
     overload_record rec;
     rec.arity = kArity;
+    rec.max_positional = meta.max_positional;
     rec.args = std::move(meta.args);
     rec.keep_alives = std::move(meta.keep_alives);
     rec.is_method = meta.method_flag;
@@ -228,10 +274,11 @@ inline overload_record make_function_overload(Fn&& fn, Extra&&... extra) {
     const std::vector<keep_alive_spec> ka_copy = rec.keep_alives;
     const rv_policy pol = meta.policy;
     const bool is_m = rec.is_method;
+    const std::size_t max_pos = rec.max_positional;
 
-    rec.invoke = [bound_fn = DecayedFn(std::forward<Fn>(fn)), specs_copy, ka_copy, pol,
-                  is_m](const call_args& cargs, bool convert, bool& matched,
-                        SEXP parent) mutable -> SEXP {
+    rec.invoke = [bound_fn = DecayedFn(std::forward<Fn>(fn)), specs_copy, ka_copy, pol, is_m,
+                  max_pos](const call_args& cargs, bool convert, bool& matched,
+                           SEXP parent) mutable -> SEXP {
         std::array<SEXP, (kArity > 0 ? kArity : 1)> resolved{};
         if constexpr (kArity == 0) {
             if (cargs.n_pos != 0 || cargs.n_kw != 0) {
@@ -242,15 +289,19 @@ inline overload_record make_function_overload(Fn&& fn, Extra&&... extra) {
             if constexpr (std::is_void_v<RetT>) {
                 (void)pol;
                 (void)is_m;
-                bound_fn();
+                (void)max_pos;
+                invoke_with_guards<GuardTuple>([&]() { bound_fn(); });
                 return R_NilValue;
             } else {
-                SEXP out = to_r_sexp(bound_fn(), pol, parent);
+                (void)max_pos;
+                SEXP out = to_r_sexp(
+                    invoke_with_guards<GuardTuple>([&]() -> decltype(auto) { return bound_fn(); }),
+                    pol, parent);
                 wire_keep_alives(ka_copy, cargs, is_m, nullptr, 0, out);
                 return out;
             }
         } else {
-            if (!resolve_arguments<kArity>(cargs, 0, specs_copy, resolved)) {
+            if (!resolve_arguments<kArity>(cargs, 0, max_pos, specs_copy, resolved)) {
                 matched = false;
                 return R_NilValue;
             }
@@ -267,13 +318,17 @@ inline overload_record make_function_overload(Fn&& fn, Extra&&... extra) {
             matched = true;
             if constexpr (std::is_void_v<RetT>) {
                 (void)pol;
-                invoke_with_casters<DecayedFn, ArgsTuple>(bound_fn, casters,
-                                                          std::make_index_sequence<kArity>{});
+                invoke_with_guards<GuardTuple>([&]() {
+                    invoke_with_casters<DecayedFn, ArgsTuple>(bound_fn, casters,
+                                                              std::make_index_sequence<kArity>{});
+                });
                 wire_keep_alives(ka_copy, cargs, is_m, resolved.data(), kArity, R_NilValue);
                 return R_NilValue;
             } else {
-                SEXP out = to_r_sexp(invoke_with_casters<DecayedFn, ArgsTuple>(
-                                         bound_fn, casters, std::make_index_sequence<kArity>{}),
+                SEXP out = to_r_sexp(invoke_with_guards<GuardTuple>([&]() -> decltype(auto) {
+                                         return invoke_with_casters<DecayedFn, ArgsTuple>(
+                                             bound_fn, casters, std::make_index_sequence<kArity>{});
+                                     }),
                                      pol, parent);
                 wire_keep_alives(ka_copy, cargs, is_m, resolved.data(), kArity, out);
                 return out;
@@ -287,6 +342,7 @@ template <typename ClassT, typename Fn, typename... Extra>
 inline overload_record make_method_overload(Fn&& fn, Extra&&... extra) {
     using DecayedFn = std::decay_t<Fn>;
     using Traits = function_traits<DecayedFn>;
+    using GuardTuple = typename collect_call_guards<Extra...>::type;
 
     if constexpr (!Traits::is_member) {
         // Free function / lambda taking `ClassT&` / `const ClassT&` as its first argument.
@@ -299,6 +355,7 @@ inline overload_record make_method_overload(Fn&& fn, Extra&&... extra) {
 
         overload_record rec;
         rec.arity = kUserArity;
+        rec.max_positional = meta.max_positional;
         rec.args = std::move(meta.args);
         rec.keep_alives = std::move(meta.keep_alives);
         rec.is_method = true;
@@ -308,10 +365,11 @@ inline overload_record make_method_overload(Fn&& fn, Extra&&... extra) {
         const std::vector<arg_spec> specs_copy = rec.args;
         const std::vector<keep_alive_spec> ka_copy = rec.keep_alives;
         const rv_policy pol = meta.policy;
+        const std::size_t max_pos = rec.max_positional;
 
-        rec.invoke = [bound_fn = DecayedFn(std::forward<Fn>(fn)), specs_copy, ka_copy,
-                      pol](const call_args& cargs, bool convert, bool& matched,
-                           SEXP parent) mutable -> SEXP {
+        rec.invoke = [bound_fn = DecayedFn(std::forward<Fn>(fn)), specs_copy, ka_copy, pol,
+                      max_pos](const call_args& cargs, bool convert, bool& matched,
+                               SEXP parent) mutable -> SEXP {
             if (cargs.n_pos < 1) {
                 matched = false;
                 return R_NilValue;
@@ -334,12 +392,18 @@ inline overload_record make_method_overload(Fn&& fn, Extra&&... extra) {
                 if constexpr (std::is_void_v<RetT>) {
                     (void)pol;
                     (void)ret_parent;
-                    bound_fn(static_cast<SelfParamT>(self_caster.get()));
+                    (void)max_pos;
+                    invoke_with_guards<GuardTuple>(
+                        [&]() { bound_fn(static_cast<SelfParamT&&>(self_caster.get())); });
                     wire_keep_alives(ka_copy, cargs, true, nullptr, 0, R_NilValue);
                     return R_NilValue;
                 } else {
-                    SEXP out = to_r_sexp(bound_fn(static_cast<SelfParamT>(self_caster.get())), pol,
-                                         ret_parent);
+                    (void)max_pos;
+                    SEXP out =
+                        to_r_sexp(invoke_with_guards<GuardTuple>([&]() -> decltype(auto) {
+                                      return bound_fn(static_cast<SelfParamT&&>(self_caster.get()));
+                                  }),
+                                  pol, ret_parent);
                     wire_keep_alives(ka_copy, cargs, true, nullptr, 0, out);
                     return out;
                 }
@@ -352,7 +416,7 @@ inline overload_record make_method_overload(Fn&& fn, Extra&&... extra) {
                     std::make_index_sequence<kUserArity>{}))::type;
 
                 std::array<SEXP, kUserArity> resolved{};
-                if (!resolve_arguments<kUserArity>(cargs, 1, specs_copy, resolved)) {
+                if (!resolve_arguments<kUserArity>(cargs, 1, max_pos, specs_copy, resolved)) {
                     matched = false;
                     return R_NilValue;
                 }
@@ -372,19 +436,22 @@ inline overload_record make_method_overload(Fn&& fn, Extra&&... extra) {
                 using RetT = typename Traits::return_type;
                 auto call_it =
                     [&]<std::size_t... Is>(std::index_sequence<Is...>) -> decltype(auto) {
-                    return bound_fn(static_cast<SelfParamT>(self_caster.get()),
-                                    static_cast<std::tuple_element_t<Is, UserTuple>>(
+                    return bound_fn(static_cast<SelfParamT&&>(self_caster.get()),
+                                    static_cast<std::tuple_element_t<Is, UserTuple>&&>(
                                         std::get<Is>(casters).get())...);
                 };
                 if constexpr (std::is_void_v<RetT>) {
                     (void)pol;
                     (void)ret_parent;
-                    call_it(std::make_index_sequence<kUserArity>{});
+                    invoke_with_guards<GuardTuple>(
+                        [&]() { call_it(std::make_index_sequence<kUserArity>{}); });
                     wire_keep_alives(ka_copy, cargs, true, resolved.data(), kUserArity, R_NilValue);
                     return R_NilValue;
                 } else {
-                    SEXP out =
-                        to_r_sexp(call_it(std::make_index_sequence<kUserArity>{}), pol, ret_parent);
+                    SEXP out = to_r_sexp(invoke_with_guards<GuardTuple>([&]() -> decltype(auto) {
+                                             return call_it(std::make_index_sequence<kUserArity>{});
+                                         }),
+                                         pol, ret_parent);
                     wire_keep_alives(ka_copy, cargs, true, resolved.data(), kUserArity, out);
                     return out;
                 }
@@ -402,6 +469,7 @@ inline overload_record make_method_overload(Fn&& fn, Extra&&... extra) {
         overload_meta meta = collect_meta(kArity, std::forward<Extra>(extra)...);
         overload_record rec;
         rec.arity = kArity;
+        rec.max_positional = meta.max_positional;
         rec.args = std::move(meta.args);
         rec.keep_alives = std::move(meta.keep_alives);
         rec.is_method = true;
@@ -411,10 +479,11 @@ inline overload_record make_method_overload(Fn&& fn, Extra&&... extra) {
         const std::vector<arg_spec> specs_copy = rec.args;
         const std::vector<keep_alive_spec> ka_copy = rec.keep_alives;
         const rv_policy pol = meta.policy;
+        const std::size_t max_pos = rec.max_positional;
 
-        rec.invoke = [bound_fn = DecayedFn(std::forward<Fn>(fn)), specs_copy, ka_copy,
-                      pol](const call_args& cargs, bool convert, bool& matched,
-                           SEXP parent) mutable -> SEXP {
+        rec.invoke = [bound_fn = DecayedFn(std::forward<Fn>(fn)), specs_copy, ka_copy, pol,
+                      max_pos](const call_args& cargs, bool convert, bool& matched,
+                               SEXP parent) mutable -> SEXP {
             if (cargs.n_pos < 1) {
                 matched = false;
                 return R_NilValue;
@@ -437,17 +506,22 @@ inline overload_record make_method_overload(Fn&& fn, Extra&&... extra) {
                 if constexpr (std::is_void_v<RetT>) {
                     (void)pol;
                     (void)ret_parent;
-                    (self.*bound_fn)();
+                    (void)max_pos;
+                    invoke_with_guards<GuardTuple>([&]() { (self.*bound_fn)(); });
                     wire_keep_alives(ka_copy, cargs, true, nullptr, 0, R_NilValue);
                     return R_NilValue;
                 } else {
-                    SEXP out = to_r_sexp((self.*bound_fn)(), pol, ret_parent);
+                    (void)max_pos;
+                    SEXP out = to_r_sexp(invoke_with_guards<GuardTuple>([&]() -> decltype(auto) {
+                                             return (self.*bound_fn)();
+                                         }),
+                                         pol, ret_parent);
                     wire_keep_alives(ka_copy, cargs, true, nullptr, 0, out);
                     return out;
                 }
             } else {
                 std::array<SEXP, kArity> resolved{};
-                if (!resolve_arguments<kArity>(cargs, 1, specs_copy, resolved)) {
+                if (!resolve_arguments<kArity>(cargs, 1, max_pos, specs_copy, resolved)) {
                     matched = false;
                     return R_NilValue;
                 }
@@ -465,15 +539,19 @@ inline overload_record make_method_overload(Fn&& fn, Extra&&... extra) {
                 if constexpr (std::is_void_v<RetT>) {
                     (void)pol;
                     (void)ret_parent;
-                    invoke_method_with_casters<DecayedFn, ClassT, ArgsTuple>(
-                        bound_fn, self, casters, std::make_index_sequence<kArity>{});
+                    invoke_with_guards<GuardTuple>([&]() {
+                        invoke_method_with_casters<DecayedFn, ClassT, ArgsTuple>(
+                            bound_fn, self, casters, std::make_index_sequence<kArity>{});
+                    });
                     wire_keep_alives(ka_copy, cargs, true, resolved.data(), kArity, R_NilValue);
                     return R_NilValue;
                 } else {
-                    SEXP out =
-                        to_r_sexp(invoke_method_with_casters<DecayedFn, ClassT, ArgsTuple>(
-                                      bound_fn, self, casters, std::make_index_sequence<kArity>{}),
-                                  pol, ret_parent);
+                    SEXP out = to_r_sexp(
+                        invoke_with_guards<GuardTuple>([&]() -> decltype(auto) {
+                            return invoke_method_with_casters<DecayedFn, ClassT, ArgsTuple>(
+                                bound_fn, self, casters, std::make_index_sequence<kArity>{});
+                        }),
+                        pol, ret_parent);
                     wire_keep_alives(ka_copy, cargs, true, resolved.data(), kArity, out);
                     return out;
                 }
@@ -486,20 +564,23 @@ inline overload_record make_method_overload(Fn&& fn, Extra&&... extra) {
 template <typename ClassT, typename... CtorArgs, typename... Extra>
 inline overload_record make_constructor_overload(init<CtorArgs...>, Extra&&... extra) {
     using ArgsTuple = std::tuple<CtorArgs...>;
+    using GuardTuple = typename collect_call_guards<Extra...>::type;
     constexpr std::size_t kArity = sizeof...(CtorArgs);
     overload_meta meta = collect_meta(kArity, std::forward<Extra>(extra)...);
 
     overload_record rec;
     rec.arity = kArity;
+    rec.max_positional = meta.max_positional;
     rec.args = std::move(meta.args);
     rec.keep_alives = std::move(meta.keep_alives);
     rec.doc = std::move(meta.doc_str);
 
     const std::vector<arg_spec> specs_copy = rec.args;
     const std::vector<keep_alive_spec> ka_copy = rec.keep_alives;
+    const std::size_t max_pos = rec.max_positional;
 
-    rec.invoke = [specs_copy, ka_copy](const call_args& cargs, bool convert, bool& matched,
-                                       SEXP) mutable -> SEXP {
+    rec.invoke = [specs_copy, ka_copy, max_pos](const call_args& cargs, bool convert, bool& matched,
+                                                SEXP) mutable -> SEXP {
         const class_record* cls =
             type_registry::instance().find_class(std::type_index(typeid(ClassT)));
         if (cls == nullptr) {
@@ -512,13 +593,14 @@ inline overload_record make_constructor_overload(init<CtorArgs...>, Extra&&... e
                 return R_NilValue;
             }
             matched = true;
-            auto sp = std::make_shared<ClassT>();
-            instance_box box{sp.get(), std::type_index(typeid(ClassT)), sp, true};
+            (void)max_pos;
+            ClassT* raw = invoke_with_guards<GuardTuple>([]() { return new ClassT(); });
+            instance_box box = make_owned_instance_box(raw);
             SEXP out = r_wrap_instance(std::move(box), cls, rv_policy::take_ownership, R_NilValue);
             wire_keep_alives(ka_copy, cargs, false, nullptr, 0, out);
             return out;
         } else {
-            if (!resolve_arguments<kArity>(cargs, 0, specs_copy, resolved)) {
+            if (!resolve_arguments<kArity>(cargs, 0, max_pos, specs_copy, resolved)) {
                 matched = false;
                 return R_NilValue;
             }
@@ -533,12 +615,14 @@ inline overload_record make_constructor_overload(init<CtorArgs...>, Extra&&... e
                 return R_NilValue;
             }
             matched = true;
-            auto sp = [&]<std::size_t... Is>(std::index_sequence<Is...>) {
-                return std::make_shared<ClassT>(static_cast<std::tuple_element_t<Is, ArgsTuple>>(
-                    std::get<Is>(casters).get())...);
-            }(std::make_index_sequence<kArity>{});
+            ClassT* raw = invoke_with_guards<GuardTuple>([&]() {
+                return [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+                    return new ClassT(static_cast<std::tuple_element_t<Is, ArgsTuple>&&>(
+                        std::get<Is>(casters).get())...);
+                }(std::make_index_sequence<kArity>{});
+            });
 
-            instance_box box{sp.get(), std::type_index(typeid(ClassT)), sp, true};
+            instance_box box = make_owned_instance_box(raw);
             SEXP out = r_wrap_instance(std::move(box), cls, rv_policy::take_ownership, R_NilValue);
             wire_keep_alives(ka_copy, cargs, false, resolved.data(), kArity, out);
             return out;

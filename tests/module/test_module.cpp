@@ -1,10 +1,21 @@
 #include "pyrabind/dataframe.hpp"
-#include "pyrabind/pyrabind.hpp"
+#include "pyrabind/make_iterator.hpp"
 #include "pyrabind/ndarray.hpp"
 #include "pyrabind/operators.hpp"
+#include "pyrabind/pyrabind.hpp"
 #include "pyrabind/stl.hpp"
+#include "pyrabind/stl/bind_map.hpp"
+#include "pyrabind/stl/bind_vector.hpp"
 
 #include <array>
+#include <chrono>
+#include <cmath>
+#include <complex>
+#include <functional>
+#include <list>
+#include <map>
+#include <memory>
+#include <stdexcept>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -303,6 +314,181 @@ nb::data_frame transform_df(const nb::data_frame& df) {
 
 } // namespace
 
+struct OpaqueItem {
+    int tag = 0;
+    std::string label;
+    bool operator==(const OpaqueItem&) const = default;
+};
+
+using OpaqueVec = std::vector<OpaqueItem>;
+using OpaqueMap = std::map<std::string, OpaqueItem>;
+
+PYRABIND_MAKE_OPAQUE(OpaqueVec)
+PYRABIND_MAKE_OPAQUE(OpaqueMap)
+
+struct SharedNode {
+    int id = 0;
+    std::string name;
+};
+
+struct UniqueToken {
+    int code = 0;
+    bool active() const { return code > 0; }
+};
+
+struct TestCallGuard {
+    inline static int enters = 0;
+    inline static int exits = 0;
+    TestCallGuard() { ++enters; }
+    ~TestCallGuard() { ++exits; }
+};
+
+struct StaticBox {
+    inline static const int kConst = 42;
+    inline static int mutable_val = 10;
+    inline static int computed_backing = 100;
+};
+
+struct CustomDomainError : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
+struct NumberBag {
+    std::vector<int> vals;
+    std::map<std::string, int> kv;
+
+    NumberBag(std::vector<int> v, std::map<std::string, int> kv_map)
+        : vals(std::move(v)), kv(std::move(kv_map)) {}
+};
+
+struct ModInt {
+    int value = 0;
+
+    ModInt operator+() const { return ModInt{+value}; }
+    bool operator!() const { return value == 0; }
+    ModInt operator~() const { return ModInt{~value}; }
+    ModInt operator%(const ModInt& o) const { return ModInt{value % o.value}; }
+    ModInt operator&(const ModInt& o) const { return ModInt{value & o.value}; }
+    ModInt operator|(const ModInt& o) const { return ModInt{value | o.value}; }
+    ModInt operator^(const ModInt& o) const { return ModInt{value ^ o.value}; }
+    ModInt operator<<(const ModInt& o) const { return ModInt{value << o.value}; }
+    ModInt operator>>(const ModInt& o) const { return ModInt{value >> o.value}; }
+    ModInt& operator+=(const ModInt& o) {
+        value += o.value;
+        return *this;
+    }
+    ModInt& operator%=(const ModInt& o) {
+        value %= o.value;
+        return *this;
+    }
+    bool operator==(const ModInt& o) const = default;
+    bool operator!=(const ModInt& o) const = default;
+};
+
+template <> struct std::hash<ModInt> {
+    std::size_t operator()(const ModInt& item) const noexcept {
+        return std::hash<int>{}(item.value);
+    }
+};
+
+struct SignedScalar {
+    double value = 0.0;
+    operator double() const noexcept { return value; }
+};
+
+namespace {
+
+std::shared_ptr<SharedNode>& retained_node_slot() {
+    static std::shared_ptr<SharedNode> slot;
+    return slot;
+}
+
+std::shared_ptr<SharedNode> make_shared_node(int node_id, const std::string& node_name) {
+    return std::make_shared<SharedNode>(SharedNode{node_id, node_name});
+}
+
+long shared_node_use_count(const std::shared_ptr<SharedNode>& sp) {
+    return sp ? sp.use_count() : 0L;
+}
+
+long retain_shared_node(const std::shared_ptr<SharedNode>& sp) {
+    retained_node_slot() = sp;
+    return sp ? sp.use_count() : 0L;
+}
+
+int bump_retained_node(int delta) {
+    auto& slot = retained_node_slot();
+    if (!slot) {
+        throw nb::value_error("no shared node retained");
+    }
+    slot->id += delta;
+    return slot->id;
+}
+
+void clear_retained_node() {
+    retained_node_slot().reset();
+}
+
+std::unique_ptr<UniqueToken> make_unique_token(int code) {
+    return std::make_unique<UniqueToken>(UniqueToken{code});
+}
+
+int consume_unique_token(std::unique_ptr<UniqueToken> tok) {
+    return tok ? tok->code * 10 : -1;
+}
+
+std::complex<double> complex_add_mul(std::complex<double> x, std::complex<double> y) {
+    return x + y * std::complex<double>(0.0, 1.0);
+}
+
+std::chrono::milliseconds add_duration_ms(std::chrono::milliseconds d1,
+                                          std::chrono::milliseconds d2) {
+    return d1 + d2;
+}
+
+std::chrono::system_clock::time_point shift_timestamp(std::chrono::system_clock::time_point tp,
+                                                      std::chrono::duration<double> delta) {
+    return tp + std::chrono::duration_cast<std::chrono::system_clock::duration>(delta);
+}
+
+std::list<int> reverse_int_list(std::list<int> xs) {
+    xs.reverse();
+    return xs;
+}
+
+std::list<std::string> tag_str_list(std::list<std::string> xs, const std::string& prefix) {
+    for (auto& item : xs) {
+        item = prefix + item;
+    }
+    return xs;
+}
+
+int kw_combine(int x, int y, int z) {
+    return x * 100 + y * 10 + z;
+}
+
+int guarded_work(int x) {
+    return x + TestCallGuard::enters;
+}
+
+std::pair<int, int> guard_counts() {
+    return {TestCallGuard::enters, TestCallGuard::exits};
+}
+
+int fail_domain(const std::string& msg) {
+    throw CustomDomainError(msg);
+}
+
+void push_opaque(OpaqueVec& vec, const OpaqueItem& item) {
+    vec.push_back(item);
+}
+
+void set_opaque_entry(OpaqueMap& mp, const std::string& key, const OpaqueItem& item) {
+    mp[key] = item;
+}
+
+} // namespace
+
 PYRABIND_MODULE(test_module, m) {
     using namespace nb::literals;
     m.doc() = "Comprehensive dual-target pyrabind test module";
@@ -384,4 +570,109 @@ PYRABIND_MODULE(test_module, m) {
         .def_ro("base", &Accumulator::base)
         .def("add", nb::overload_cast<int>(&Accumulator::add), "x"_a)
         .def("add_const", nb::overload_cast<int>(&Accumulator::add, nb::const_), "x"_a);
+
+    nb::class_<SharedNode>(m, "SharedNode")
+        .def(nb::init<int, std::string>(), "id"_a, "name"_a)
+        .def_rw("id", &SharedNode::id)
+        .def_rw("name", &SharedNode::name);
+    m.def("make_shared_node", &make_shared_node, "id"_a, "name"_a);
+    m.def("shared_node_use_count", &shared_node_use_count, "sp"_a);
+    m.def("retain_shared_node", &retain_shared_node, "sp"_a);
+    m.def("bump_retained_node", &bump_retained_node, "delta"_a);
+    m.def("clear_retained_node", &clear_retained_node);
+
+    nb::class_<UniqueToken>(m, "UniqueToken")
+        .def(nb::init<int>(), "code"_a)
+        .def_rw("code", &UniqueToken::code)
+        .def("active", &UniqueToken::active);
+    m.def("make_unique_token", &make_unique_token, "code"_a);
+    m.def("consume_unique_token", &consume_unique_token, "tok"_a);
+
+    m.def("complex_add_mul", &complex_add_mul, "a"_a, "b"_a);
+    m.def("add_duration_ms", &add_duration_ms, "a"_a, "b"_a);
+    m.def("shift_timestamp", &shift_timestamp, "tp"_a, "delta"_a);
+    m.def("reverse_int_list", &reverse_int_list, "xs"_a);
+    m.def("tag_str_list", &tag_str_list, "xs"_a, "prefix"_a);
+
+    m.def("kw_combine", &kw_combine, "a"_a, nb::kw_only(), "b"_a, "c"_a = 5);
+    m.def("guarded_work", &guarded_work, "x"_a,
+          nb::call_guard<nb::gil_scoped_release, TestCallGuard>());
+    m.def("guard_counts", &guard_counts);
+
+    nb::class_<StaticBox>(m, "StaticBox")
+        .def(nb::init<>())
+        .def_ro_static("CONST_VAL", &StaticBox::kConst)
+        .def_rw_static("mutable_val", &StaticBox::mutable_val)
+        .def_prop_ro_static("double_const", [](nb::handle) { return StaticBox::kConst * 2; })
+        .def_prop_rw_static(
+            "computed", [](nb::handle) { return StaticBox::computed_backing; },
+            [](nb::handle, int val) { StaticBox::computed_backing = val; });
+
+    nb::exception<CustomDomainError>(m, "CustomDomainError");
+    m.def("fail_domain", &fail_domain, "msg"_a);
+
+    nb::class_<NumberBag>(m, "NumberBag")
+        .def(nb::init<std::vector<int>, std::map<std::string, int>>(), "vals"_a, "kv"_a)
+        .def(
+            "__iter__",
+            [](const NumberBag& bag) {
+                return nb::make_iterator(nb::type<NumberBag>(), "BagValIter", bag.vals);
+            },
+            nb::keep_alive<0, 1>())
+        .def(
+            "keys",
+            [](const NumberBag& bag) {
+                return nb::make_key_iterator(nb::type<NumberBag>(), "BagKeyIter", bag.kv.begin(),
+                                             bag.kv.end());
+            },
+            nb::keep_alive<0, 1>())
+        .def(
+            "values",
+            [](const NumberBag& bag) {
+                return nb::make_value_iterator(nb::type<NumberBag>(), "BagMapValIter",
+                                               bag.kv.begin(), bag.kv.end());
+            },
+            nb::keep_alive<0, 1>())
+        .def(
+            "items",
+            [](const NumberBag& bag) {
+                return nb::make_iterator(nb::type<NumberBag>(), "BagItemIter", bag.kv.begin(),
+                                         bag.kv.end());
+            },
+            nb::keep_alive<0, 1>());
+
+    nb::class_<OpaqueItem>(m, "OpaqueItem")
+        .def(nb::init<int, std::string>(), "tag"_a, "label"_a)
+        .def_rw("tag", &OpaqueItem::tag)
+        .def_rw("label", &OpaqueItem::label)
+        .def(nb::self == nb::self)
+        .def(nb::self != nb::self);
+
+    nb::bind_vector<OpaqueVec>(m, "OpaqueVec");
+    nb::bind_map<OpaqueMap>(m, "OpaqueMap");
+    m.def("push_opaque", &push_opaque, "vec"_a, "item"_a);
+    m.def("set_opaque_entry", &set_opaque_entry, "mp"_a, "key"_a, "item"_a);
+
+    nb::class_<ModInt>(m, "ModInt")
+        .def(nb::init<int>(), "value"_a)
+        .def_rw("value", &ModInt::value)
+        .def(+nb::self)
+        .def(!nb::self)
+        .def(~nb::self)
+        .def(nb::self % nb::self)
+        .def(nb::self & nb::self)
+        .def(nb::self | nb::self)
+        .def(nb::self ^ nb::self)
+        .def(nb::self << nb::self)
+        .def(nb::self >> nb::self)
+        .def(nb::self += nb::self)
+        .def(nb::self %= nb::self)
+        .def(nb::self == nb::self)
+        .def(nb::self != nb::self)
+        .def(nb::hash(nb::self));
+
+    nb::class_<SignedScalar>(m, "SignedScalar")
+        .def(nb::init<double>(), "value"_a)
+        .def_ro("value", &SignedScalar::value)
+        .def(nb::abs(nb::self));
 }

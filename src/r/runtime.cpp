@@ -23,10 +23,15 @@ void RRuntimeState::ensure_symbols() {
     meth_tag = Rf_install("pyrabind_method");
     prop_tag = Rf_install("pyrabind_property");
     capsule_tag = Rf_install("pyrabind_capsule");
+    iter_tag = Rf_install("pyrabind_iterator");
     pb_attr_sym = Rf_install(".pb");
     stop_fn = Rf_findFun(Rf_install("stop"), R_BaseNamespace);
     keep_alive_pool = cpp11::sexp(R_NilValue);
     initialized = true;
+}
+
+void r_register_exception_translator(custom_exception_translator fn) {
+    RRuntimeState::instance().exception_translators.push_back(std::move(fn));
 }
 
 namespace {
@@ -51,9 +56,8 @@ const char* condition_class_name(error_kind kind) noexcept {
     }
 }
 
-} // namespace
-
-[[noreturn]] void r_raise_condition(error_kind kind, const char* msg) {
+[[noreturn]] void r_raise_condition_classes(const std::vector<std::string>& classes,
+                                            const char* msg) {
     auto& rt = RRuntimeState::instance();
     rt.ensure_symbols();
 
@@ -67,17 +71,33 @@ const char* condition_class_name(error_kind kind) noexcept {
     SET_STRING_ELT(nms, 1, Rf_mkChar("call"));
     Rf_setAttrib(cond, R_NamesSymbol, nms);
 
-    SEXP cls = PROTECT(Rf_allocVector(STRSXP, 4));
-    SET_STRING_ELT(cls, 0, Rf_mkChar(condition_class_name(kind)));
-    SET_STRING_ELT(cls, 1, Rf_mkChar("pyrabind_error"));
-    SET_STRING_ELT(cls, 2, Rf_mkChar("error"));
-    SET_STRING_ELT(cls, 3, Rf_mkChar("condition"));
+    const R_xlen_t total_cls = static_cast<R_xlen_t>(classes.size()) + 3;
+    SEXP cls = PROTECT(Rf_allocVector(STRSXP, total_cls));
+    R_xlen_t idx = 0;
+    for (const auto& c : classes) {
+        SET_STRING_ELT(cls, idx++, Rf_mkChar(c.c_str()));
+    }
+    SET_STRING_ELT(cls, idx++, Rf_mkChar("pyrabind_error"));
+    SET_STRING_ELT(cls, idx++, Rf_mkChar("error"));
+    SET_STRING_ELT(cls, idx++, Rf_mkChar("condition"));
     Rf_setAttrib(cond, R_ClassSymbol, cls);
 
     SEXP call = PROTECT(Rf_lang2(rt.stop_fn, cond));
     Rf_eval(call, R_BaseNamespace);
     UNPROTECT(5);
     Rf_error("%s", msg != nullptr ? msg : "pyrabind error");
+}
+
+} // namespace
+
+[[noreturn]] void r_raise_condition(error_kind kind, const char* msg) {
+    std::vector<std::string> classes{condition_class_name(kind)};
+    r_raise_condition_classes(classes, msg);
+}
+
+[[noreturn]] void r_raise_custom_condition(const std::vector<std::string>& classes,
+                                           const char* msg) {
+    r_raise_condition_classes(classes, msg);
 }
 
 const RInstanceHolder* r_unwrap_instance(SEXP x) {

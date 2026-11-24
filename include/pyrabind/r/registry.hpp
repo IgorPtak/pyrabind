@@ -67,14 +67,49 @@ struct call_args {
     }
 };
 
+struct owned_instance_ctrl {
+    void* raw = nullptr;
+    void (*deleter)(void*) noexcept = nullptr;
+    std::type_index alloc_type = std::type_index(typeid(void));
+    bool released = false;
+
+    ~owned_instance_ctrl() {
+        if (!released && raw != nullptr && deleter != nullptr) {
+            deleter(raw);
+        }
+    }
+};
+
 struct instance_box {
     void* ptr = nullptr;
     std::type_index type = std::type_index(typeid(void));
     std::shared_ptr<void> holder;
+    owned_instance_ctrl* ctrl = nullptr;
     bool owned = false;
 
     void* cast_to(std::type_index target) const noexcept;
 };
+
+template <typename AllocT>
+inline instance_box make_owned_instance_box(AllocT* alloc_ptr, void* exposed_ptr,
+                                            std::type_index exposed_type) {
+    auto ctrl_sp = std::make_shared<owned_instance_ctrl>();
+    ctrl_sp->raw = alloc_ptr;
+    ctrl_sp->deleter = [](void* p) noexcept { delete static_cast<AllocT*>(p); };
+    ctrl_sp->alloc_type = std::type_index(typeid(AllocT));
+
+    instance_box box;
+    box.ptr = exposed_ptr;
+    box.type = exposed_type;
+    box.ctrl = ctrl_sp.get();
+    box.holder = std::move(ctrl_sp);
+    box.owned = true;
+    return box;
+}
+
+template <typename T> inline instance_box make_owned_instance_box(T* raw_ptr) {
+    return make_owned_instance_box<T>(raw_ptr, raw_ptr, std::type_index(typeid(T)));
+}
 
 struct arg_spec {
     std::string name;
@@ -93,6 +128,7 @@ struct overload_record {
     using invoke_fn_t =
         std::function<SEXP(const call_args&, bool convert, bool& matched, SEXP parent)>;
     std::size_t arity = 0;
+    std::size_t max_positional = static_cast<std::size_t>(-1);
     std::vector<arg_spec> args;
     std::vector<keep_alive_spec> keep_alives;
     bool is_method = false;
@@ -127,6 +163,7 @@ struct class_record {
     std::deque<function_record> methods;
     std::deque<function_record> static_methods;
     std::deque<property_record> properties;
+    std::deque<property_record> static_properties;
 
     function_record& get_or_create_method(const std::string& mname, bool is_static = false) {
         auto& pool = is_static ? static_methods : methods;

@@ -19,16 +19,25 @@ bool r_to_bool(SEXP x, bool convert, bool& out);
 bool r_to_i64(SEXP x, bool convert, std::int64_t& out);
 bool r_to_u64(SEXP x, bool convert, std::uint64_t& out);
 bool r_to_double(SEXP x, bool convert, double& out);
+bool r_to_complex(SEXP x, bool convert, double& re, double& im);
 bool r_to_string(SEXP x, bool convert, std::string& out);
 bool r_to_cstr(SEXP x, bool convert, const char*& out);
+bool r_to_duration_secs(SEXP x, bool convert, double& out_secs);
+bool r_to_posix_secs(SEXP x, double& out_epoch_secs);
 
 SEXP r_from_bool(bool v);
 SEXP r_from_i64(std::int64_t v);
 SEXP r_from_u64(std::uint64_t v);
 SEXP r_from_double(double v);
+SEXP r_from_complex(double re, double im);
 SEXP r_from_string(std::string_view v);
+SEXP r_from_duration_secs(double secs);
+SEXP r_from_posix_secs(double epoch_secs);
 
 bool r_extract_instance(SEXP x, std::type_index target_type, void*& out_ptr);
+bool r_extract_shared_holder(SEXP x, std::type_index target_type, void*& out_ptr,
+                             std::shared_ptr<void>& out_owner);
+bool r_relinquish_unique_ptr(SEXP x, std::type_index target_type, bool poly_or_vd, void*& out_ptr);
 SEXP r_wrap_instance(instance_box box, const class_record* cls, rv_policy policy, SEXP parent);
 
 bool r_extract_enum(SEXP x, std::type_index enum_type, std::int64_t& out_val);
@@ -37,10 +46,12 @@ SEXP r_wrap_enum(const enum_record* rec, std::int64_t val);
 SEXP r_wrap_capsule(const capsule& cap);
 bool r_extract_capsule(SEXP x, capsule& out);
 
+SEXP r_wrap_iterator(std::function<SEXP(bool&, SEXP)> next_fn);
+
 void r_attach_keep_alive(SEXP nurse, SEXP patient);
 
-// Primary template handles bound C++ classes; specializations take precedence automatically.
-template <typename T, typename Enable = void> struct type_caster {
+// Shared implementation for bound C++ classes and PYRABIND_MAKE_OPAQUE types.
+template <typename T> struct class_type_caster {
     T* ptr = nullptr;
 
     bool from_r(SEXP x, bool) {
@@ -66,11 +77,11 @@ template <typename T, typename Enable = void> struct type_caster {
         if (cls == nullptr) {
             throw type_error("cannot return unregistered C++ type to R");
         }
-        instance_box box;
         if constexpr (std::is_lvalue_reference_v<U> &&
                       !std::is_const_v<std::remove_reference_t<U>>) {
             if (policy == rv_policy::reference || policy == rv_policy::reference_internal ||
                 policy == rv_policy::automatic_reference) {
+                instance_box box;
                 box.ptr = std::addressof(v);
                 box.type = std::type_index(typeid(CleanU));
                 box.owned = false;
@@ -78,6 +89,7 @@ template <typename T, typename Enable = void> struct type_caster {
             }
         } else if constexpr (std::is_lvalue_reference_v<U>) {
             if (policy == rv_policy::reference || policy == rv_policy::reference_internal) {
+                instance_box box;
                 box.ptr = const_cast<CleanU*>(std::addressof(v));
                 box.type = std::type_index(typeid(CleanU));
                 box.owned = false;
@@ -86,16 +98,26 @@ template <typename T, typename Enable = void> struct type_caster {
         }
         if constexpr (std::is_copy_constructible_v<CleanU> ||
                       std::is_move_constructible_v<CleanU>) {
-            auto sp = std::make_shared<CleanU>(std::forward<U>(v));
-            box.ptr = sp.get();
-            box.type = std::type_index(typeid(CleanU));
-            box.holder = std::move(sp);
-            box.owned = true;
+            auto* raw = new CleanU(std::forward<U>(v));
+            instance_box box = make_owned_instance_box(raw);
             return r_wrap_instance(std::move(box), cls, rv_policy::move, parent);
         } else {
             throw type_error("cannot copy or move non-copyable C++ type to R");
         }
     }
+};
+
+// Primary template handles bound C++ classes; specializations take precedence automatically.
+template <typename T, typename Enable = void> struct type_caster : class_type_caster<T> {};
+
+template <> struct type_caster<handle> {
+    handle val;
+    bool from_r(SEXP x, bool) {
+        val = handle(x);
+        return true;
+    }
+    handle& get() noexcept { return val; }
+    static SEXP to_r(handle h, rv_policy, SEXP) { return h.ptr(); }
 };
 
 template <typename T> struct type_caster<T, std::enable_if_t<std::is_same_v<T, bool>>> {
@@ -247,26 +269,21 @@ struct type_caster<Ptr,
             throw type_error("cannot return pointer to unregistered C++ type");
         }
         auto* raw = const_cast<BaseT*>(p);
-        instance_box box;
-        box.type = std::type_index(typeid(BaseT));
         if (policy == rv_policy::take_ownership || policy == rv_policy::automatic) {
-            std::shared_ptr<BaseT> sp(raw);
-            box.ptr = sp.get();
-            box.holder = std::move(sp);
-            box.owned = true;
+            instance_box box = make_owned_instance_box(raw);
+            return r_wrap_instance(std::move(box), cls, rv_policy::take_ownership, parent);
         } else if (policy == rv_policy::copy) {
             if constexpr (std::is_copy_constructible_v<BaseT>) {
-                auto sp = std::make_shared<BaseT>(*raw);
-                box.ptr = sp.get();
-                box.holder = std::move(sp);
-                box.owned = true;
+                instance_box box = make_owned_instance_box(new BaseT(*raw));
+                return r_wrap_instance(std::move(box), cls, rv_policy::take_ownership, parent);
             } else {
                 throw type_error("cannot copy non-copyable pointer target");
             }
-        } else {
-            box.ptr = raw;
-            box.owned = false;
         }
+        instance_box box;
+        box.type = std::type_index(typeid(BaseT));
+        box.ptr = raw;
+        box.owned = false;
         return r_wrap_instance(std::move(box), cls, policy, parent);
     }
 };
@@ -284,3 +301,8 @@ template <typename T> inline SEXP to_r_sexp(T&& value, rv_policy policy, SEXP pa
 }
 
 } // namespace pyrabind::r_detail
+
+#define PYRABIND_MAKE_OPAQUE(...)                                                                  \
+    namespace pyrabind::r_detail {                                                                 \
+    template <> struct type_caster<__VA_ARGS__> : class_type_caster<__VA_ARGS__> {};               \
+    }

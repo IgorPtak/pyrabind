@@ -1,3 +1,4 @@
+import datetime
 import gc
 import math
 import pathlib
@@ -115,6 +116,132 @@ class TestPyrabindPython(unittest.TestCase):
 
         res_dict = tm.transform_df({"id": [1, 2], "x": [2.0, 3.0], "tag": ["p", "q"]})
         self.assertTrue(np.allclose(res_dict["scaled"].to_numpy(), [5.0, 8.0]))
+
+    def test_smart_pointers(self) -> None:
+        sp = tm.make_shared_node(10, "root")
+        self.assertEqual(sp.id, 10)
+        self.assertEqual(sp.name, "root")
+        self.assertGreaterEqual(tm.shared_node_use_count(sp), 1)
+        self.assertGreaterEqual(tm.retain_shared_node(sp), 1)
+        self.assertEqual(tm.bump_retained_node(5), 15)
+        self.assertEqual(sp.id, 15)
+        tm.clear_retained_node()
+
+        tok = tm.make_unique_token(7)
+        self.assertTrue(tok.active())
+        self.assertEqual(tm.consume_unique_token(tok), 70)
+        with self.assertRaises(Exception):
+            tm.consume_unique_token(tok)
+        with self.assertRaises(Exception):
+            tok.active()
+
+    def test_complex_chrono_and_list(self) -> None:
+        self.assertEqual(tm.complex_add_mul(1 + 2j, 3 + 4j), -3 + 5j)
+        self.assertEqual(tm.complex_add_mul(2.0, 5.0), 2 + 5j)
+
+        d_sum = tm.add_duration_ms(
+            datetime.timedelta(milliseconds=250),
+            datetime.timedelta(milliseconds=750),
+        )
+        self.assertEqual(d_sum, datetime.timedelta(seconds=1))
+
+        t0 = datetime.datetime(2025, 1, 15, 12, 0, 0)
+        t1 = tm.shift_timestamp(t0, datetime.timedelta(seconds=30))
+        self.assertEqual((t1 - t0).total_seconds(), 30.0)
+
+        self.assertEqual(tm.reverse_int_list([1, 2, 3]), [3, 2, 1])
+        self.assertEqual(tm.tag_str_list(["a", "b"], "p:"), ["p:a", "p:b"])
+
+    def test_kw_only_and_call_guard(self) -> None:
+        self.assertEqual(tm.kw_combine(1, b=2), 125)
+        self.assertEqual(tm.kw_combine(a=1, b=2, c=3), 123)
+        with self.assertRaises(TypeError):
+            tm.kw_combine(1, 2)
+
+        g0 = tm.guard_counts()
+        gw = tm.guarded_work(10)
+        g1 = tm.guard_counts()
+        self.assertEqual(g1[0], g0[0] + 1)
+        self.assertEqual(g1[1], g0[1] + 1)
+        self.assertEqual(gw, 10 + g1[0])
+
+    def test_static_properties_and_custom_exception(self) -> None:
+        self.assertEqual(tm.StaticBox.CONST_VAL, 42)
+        with self.assertRaises(AttributeError):
+            tm.StaticBox.CONST_VAL = 99
+
+        self.assertEqual(tm.StaticBox.mutable_val, 10)
+        tm.StaticBox.mutable_val = 25
+        self.assertEqual(tm.StaticBox.mutable_val, 25)
+        tm.StaticBox.mutable_val = 10
+
+        self.assertEqual(tm.StaticBox.double_const, 84)
+        self.assertEqual(tm.StaticBox.computed, 100)
+        tm.StaticBox.computed = 250
+        self.assertEqual(tm.StaticBox.computed, 250)
+        tm.StaticBox.computed = 100
+
+        with self.assertRaises(tm.CustomDomainError) as ctx:
+            tm.fail_domain("bad domain input")
+        self.assertIn("bad domain input", str(ctx.exception))
+
+    def test_iterators(self) -> None:
+        bag = tm.NumberBag([10, 20, 30], {"a": 1, "b": 2})
+        self.assertEqual(list(bag), [10, 20, 30])
+        self.assertEqual(list(bag.keys()), ["a", "b"])
+        self.assertEqual(list(bag.values()), [1, 2])
+        self.assertEqual(list(bag.items()), [("a", 1), ("b", 2)])
+
+    def test_opaque_bind_vector_and_map(self) -> None:
+        ov = tm.OpaqueVec()
+        ov.append(tm.OpaqueItem(1, "one"))
+        tm.push_opaque(ov, tm.OpaqueItem(2, "two"))
+        self.assertEqual(len(ov), 2)
+        self.assertEqual(ov[1].label, "two")
+        ov[0] = tm.OpaqueItem(9, "nine")
+        self.assertEqual(
+            list(ov),
+            [tm.OpaqueItem(9, "nine"), tm.OpaqueItem(2, "two")],
+        )
+        self.assertEqual(ov.pop().tag, 2)
+        self.assertEqual(len(ov), 1)
+        ov.clear()
+        self.assertEqual(len(ov), 0)
+
+        om = tm.OpaqueMap()
+        om["k1"] = tm.OpaqueItem(3, "three")
+        tm.set_opaque_entry(om, "k2", tm.OpaqueItem(4, "four"))
+        self.assertEqual(len(om), 2)
+        self.assertIn("k2", om)
+        self.assertEqual(om["k1"].tag, 3)
+        self.assertEqual(list(om.keys()), ["k1", "k2"])
+        self.assertEqual([(k, v.tag) for k, v in om.items()], [("k1", 3), ("k2", 4)])
+        del om["k1"]
+        self.assertEqual(len(om), 1)
+        self.assertNotIn("k1", om)
+
+    def test_extended_operators(self) -> None:
+        m0 = tm.ModInt(0)
+        m3 = tm.ModInt(3)
+        m5 = tm.ModInt(5)
+        m6 = tm.ModInt(6)
+        self.assertEqual((+m5).value, 5)
+        self.assertFalse(bool(m0))
+        self.assertTrue(bool(m5))
+        self.assertTrue(not m0)
+        self.assertEqual((m5 % m3).value, 2)
+        self.assertEqual((m6 & m3).value, 2)
+        self.assertEqual((tm.ModInt(4) | tm.ModInt(1)).value, 5)
+        self.assertEqual((m6 ^ m3).value, 5)
+        self.assertEqual((m3 << tm.ModInt(2)).value, 12)
+        self.assertEqual((tm.ModInt(12) >> tm.ModInt(2)).value, 3)
+        self.assertEqual((~m0).value, -1)
+        m5 += m3
+        self.assertEqual(m5.value, 8)
+        m5 %= m3
+        self.assertEqual(m5.value, 2)
+        self.assertIsInstance(hash(tm.ModInt(7)), int)
+        self.assertAlmostEqual(abs(tm.SignedScalar(-3.5)), 3.5)
 
 
 if __name__ == "__main__":

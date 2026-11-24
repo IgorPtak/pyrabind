@@ -92,6 +92,11 @@
         .Call(meta$dispatch$call_special, x, "repr")
     }, envir = base_ns)
 
+    registerS3method("abs", "pyrabind_object", function(x) {
+        meta <- attr(x, ".pb", exact = TRUE)
+        .Call(meta$dispatch$call_special, x, "abs")
+    }, envir = base_ns)
+
     registerS3method(".DollarNames", "pyrabind_object", function(x, pattern = "") {
         meta <- attr(x, ".pb", exact = TRUE)
         names_all <- character(0)
@@ -109,11 +114,30 @@
     }, envir = utils_ns)
 
     registerS3method("$", "pyrabind_class", function(x, name) {
+        sp <- attr(x, ".pb_static_props", exact = TRUE)
+        if (!is.null(sp)) {
+            prop_xptr <- get0(name, envir = sp, inherits = FALSE, ifnotfound = NULL)
+            if (!is.null(prop_xptr)) {
+                disp <- attr(x, ".pb_dispatch", exact = TRUE)
+                return(.Call(disp$get_prop, NULL, prop_xptr))
+            }
+        }
         st <- attr(x, ".pb_statics", exact = TRUE)
         if (!is.null(st) && exists(name, envir = st, inherits = FALSE)) {
             return(get(name, envir = st, inherits = FALSE))
         }
         .pyrabind_stop_attr(paste0("class has no static member '", name, "'"))
+    }, envir = base_ns)
+
+    registerS3method("$<-", "pyrabind_class", function(x, name, value) {
+        sp <- attr(x, ".pb_static_props", exact = TRUE)
+        prop_xptr <- if (!is.null(sp)) get0(name, envir = sp, inherits = FALSE, ifnotfound = NULL) else NULL
+        if (is.null(prop_xptr)) {
+            .pyrabind_stop_attr(paste0("class has no writable static property '", name, "'"))
+        }
+        disp <- attr(x, ".pb_dispatch", exact = TRUE)
+        .Call(disp$set_prop, NULL, prop_xptr, value)
+        x
     }, envir = base_ns)
 
     registerS3method("print", "pyrabind_class", function(x, ...) {
@@ -123,6 +147,27 @@
 
     registerS3method("print", "pyrabind_function", function(x, ...) {
         cat("<pyrabind function '", attr(x, ".pb_name", exact = TRUE), "'>\n", sep = "")
+        invisible(x)
+    }, envir = base_ns)
+
+    registerS3method("$", "pyrabind_iterator", function(x, name) {
+        disp <- attr(x, ".pb", exact = TRUE)
+        if (name == "__next__") {
+            return(function() .Call(disp$iter_next, x))
+        }
+        if (name == "__iter__") {
+            return(function() x)
+        }
+        .pyrabind_stop_attr(paste0("iterator has no member '", name, "'"))
+    }, envir = base_ns)
+
+    registerS3method("as.list", "pyrabind_iterator", function(x, ...) {
+        disp <- attr(x, ".pb", exact = TRUE)
+        .Call(disp$iter_collect, x)
+    }, envir = base_ns)
+
+    registerS3method("print", "pyrabind_iterator", function(x, ...) {
+        cat("<pyrabind iterator>\n")
         invisible(x)
     }, envir = base_ns)
 
@@ -175,6 +220,8 @@ pyrabind_load <- function(path) {
     dispatch$call_op <- sym("pyrabind_call_op")
     dispatch$call_special <- sym("pyrabind_call_special")
     dispatch$call_enum_op <- sym("pyrabind_call_enum_op")
+    dispatch$iter_next <- sym("pyrabind_iter_next")
+    dispatch$iter_collect <- sym("pyrabind_iter_collect")
 
     dispatch$make_fn <- function(fn_xptr, name, doc) {
         force(fn_xptr)
@@ -199,12 +246,14 @@ pyrabind_load <- function(path) {
         meta
     }
 
-    dispatch$make_class <- function(cls_xptr, qname, doc, statics_env) {
+    dispatch$make_class <- function(cls_xptr, qname, doc, statics_env, static_props_env) {
         force(cls_xptr)
         ctor <- function(...) .External(dispatch$construct, cls_xptr, ...)
         attr(ctor, ".pb_name") <- qname
         attr(ctor, ".pb_doc") <- doc
         attr(ctor, ".pb_statics") <- statics_env
+        attr(ctor, ".pb_static_props") <- static_props_env
+        attr(ctor, ".pb_dispatch") <- dispatch
         class(ctor) <- c("pyrabind_class", "function")
         ctor
     }

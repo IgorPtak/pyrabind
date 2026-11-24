@@ -14,6 +14,7 @@ using namespace ::nanobind::literals;
 } // namespace pyrabind
 
 #define PYRABIND_MODULE(name, variable) NB_MODULE(name, variable)
+#define PYRABIND_MAKE_OPAQUE(...) NB_MAKE_OPAQUE(__VA_ARGS__)
 
 #elif defined(PYRABIND_TARGET_R)
 #include "pyrabind/r/backend.hpp"

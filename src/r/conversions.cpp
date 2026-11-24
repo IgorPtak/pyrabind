@@ -201,6 +201,110 @@ bool r_to_double(SEXP x, bool convert, double& out) {
     return false;
 }
 
+bool r_to_complex(SEXP x, bool convert, double& re, double& im) {
+    if (x == nullptr || x == R_NilValue || Rf_xlength(x) != 1) {
+        return false;
+    }
+    const SEXPTYPE tp = static_cast<SEXPTYPE>(TYPEOF(x));
+    if (tp == CPLXSXP) {
+        const Rcomplex c = COMPLEX_RO(x)[0];
+        re = c.r;
+        im = c.i;
+        return true;
+    }
+    if (!convert) {
+        return false;
+    }
+    if (tp == REALSXP) {
+        re = REAL_RO(x)[0];
+        im = 0.0;
+        return true;
+    }
+    if (tp == INTSXP) {
+        const int v = INTEGER_RO(x)[0];
+        if (v == NA_INTEGER) {
+            return false;
+        }
+        re = static_cast<double>(v);
+        im = 0.0;
+        return true;
+    }
+    return false;
+}
+
+bool r_to_duration_secs(SEXP x, bool convert, double& out_secs) {
+    if (x == nullptr || x == R_NilValue || Rf_xlength(x) != 1) {
+        return false;
+    }
+    const SEXPTYPE tp = static_cast<SEXPTYPE>(TYPEOF(x));
+    double raw_val = 0.0;
+    if (tp == REALSXP) {
+        raw_val = REAL_RO(x)[0];
+    } else if (tp == INTSXP) {
+        const int v = INTEGER_RO(x)[0];
+        if (v == NA_INTEGER) {
+            return false;
+        }
+        raw_val = static_cast<double>(v);
+    } else {
+        return false;
+    }
+
+    if (Rf_inherits(x, "difftime")) {
+        SEXP units_attr = Rf_getAttrib(x, Rf_install("units"));
+        double scale = 1.0;
+        if (units_attr != R_NilValue && TYPEOF(units_attr) == STRSXP &&
+            Rf_xlength(units_attr) == 1) {
+            const char* u = CHAR(STRING_ELT(units_attr, 0));
+            if (std::strcmp(u, "mins") == 0) {
+                scale = 60.0;
+            } else if (std::strcmp(u, "hours") == 0) {
+                scale = 3600.0;
+            } else if (std::strcmp(u, "days") == 0) {
+                scale = 86400.0;
+            } else if (std::strcmp(u, "weeks") == 0) {
+                scale = 604800.0;
+            }
+        }
+        out_secs = raw_val * scale;
+        return true;
+    }
+
+    if (!convert) {
+        return false;
+    }
+    out_secs = raw_val;
+    return true;
+}
+
+bool r_to_posix_secs(SEXP x, double& out_epoch_secs) {
+    if (x == nullptr || x == R_NilValue || Rf_xlength(x) != 1) {
+        return false;
+    }
+    const SEXPTYPE tp = static_cast<SEXPTYPE>(TYPEOF(x));
+    double raw_val = 0.0;
+    if (tp == REALSXP) {
+        raw_val = REAL_RO(x)[0];
+    } else if (tp == INTSXP) {
+        const int v = INTEGER_RO(x)[0];
+        if (v == NA_INTEGER) {
+            return false;
+        }
+        raw_val = static_cast<double>(v);
+    } else {
+        return false;
+    }
+    if (Rf_inherits(x, "POSIXct")) {
+        out_epoch_secs = raw_val;
+        return true;
+    }
+    if (Rf_inherits(x, "Date")) {
+        out_epoch_secs = raw_val * 86400.0;
+        return true;
+    }
+    return false;
+}
+
 bool r_to_string(SEXP x, bool, std::string& out) {
     if (x == nullptr || x == R_NilValue || TYPEOF(x) != STRSXP || Rf_xlength(x) != 1) {
         return false;
@@ -251,6 +355,37 @@ SEXP r_from_double(double v) {
     return Rf_ScalarReal(v);
 }
 
+SEXP r_from_complex(double re, double im) {
+    Rcomplex c{};
+    c.r = re;
+    c.i = im;
+    return Rf_ScalarComplex(c);
+}
+
+SEXP r_from_duration_secs(double secs) {
+    SEXP out = PROTECT(cpp11::safe[Rf_allocVector](REALSXP, 1));
+    REAL(out)[0] = secs;
+    SEXP cls = PROTECT(Rf_mkString("difftime"));
+    SEXP units = PROTECT(Rf_mkString("secs"));
+    Rf_setAttrib(out, R_ClassSymbol, cls);
+    Rf_setAttrib(out, Rf_install("units"), units);
+    UNPROTECT(3);
+    return out;
+}
+
+SEXP r_from_posix_secs(double epoch_secs) {
+    SEXP out = PROTECT(cpp11::safe[Rf_allocVector](REALSXP, 1));
+    REAL(out)[0] = epoch_secs;
+    SEXP cls = PROTECT(cpp11::safe[Rf_allocVector](STRSXP, 2));
+    SET_STRING_ELT(cls, 0, Rf_mkChar("POSIXct"));
+    SET_STRING_ELT(cls, 1, Rf_mkChar("POSIXt"));
+    SEXP tz = PROTECT(Rf_mkString("UTC"));
+    Rf_setAttrib(out, R_ClassSymbol, cls);
+    Rf_setAttrib(out, Rf_install("tzone"), tz);
+    UNPROTECT(3);
+    return out;
+}
+
 SEXP r_from_string(std::string_view v) {
     SEXP ch = PROTECT(cpp11::unwind_protect(
         [&]() { return Rf_mkCharLenCE(v.data(), static_cast<int>(v.size()), CE_UTF8); }));
@@ -274,6 +409,64 @@ bool r_extract_instance(SEXP x, std::type_index target_type, void*& out_ptr) {
     if (casted == nullptr) {
         return false;
     }
+    out_ptr = casted;
+    return true;
+}
+
+bool r_extract_shared_holder(SEXP x, std::type_index target_type, void*& out_ptr,
+                             std::shared_ptr<void>& out_owner) {
+    auto& rt = RRuntimeState::instance();
+    rt.ensure_symbols();
+    if (x == nullptr || x == R_NilValue || TYPEOF(x) != EXTPTRSXP ||
+        R_ExternalPtrTag(x) != rt.instance_tag) {
+        return false;
+    }
+    const auto* holder = static_cast<const RInstanceHolder*>(R_ExternalPtrAddr(x));
+    if (holder == nullptr || holder->box.ptr == nullptr) {
+        return false;
+    }
+    void* casted = holder->box.cast_to(target_type);
+    if (casted == nullptr) {
+        return false;
+    }
+    out_ptr = casted;
+    if (holder->box.holder) {
+        out_owner = holder->box.holder;
+    } else {
+        out_owner = std::make_shared<cpp11::sexp>(x);
+    }
+    return true;
+}
+
+bool r_relinquish_unique_ptr(SEXP x, std::type_index target_type, bool poly_or_vd, void*& out_ptr) {
+    auto& rt = RRuntimeState::instance();
+    rt.ensure_symbols();
+    if (x == nullptr || x == R_NilValue || TYPEOF(x) != EXTPTRSXP ||
+        R_ExternalPtrTag(x) != rt.instance_tag) {
+        return false;
+    }
+    auto* holder = static_cast<RInstanceHolder*>(R_ExternalPtrAddr(x));
+    if (holder == nullptr || holder->box.ptr == nullptr || !holder->box.owned ||
+        holder->box.ctrl == nullptr || holder->box.ctrl->released ||
+        holder->box.holder.use_count() != 1) {
+        return false;
+    }
+    if (!poly_or_vd && holder->box.type != target_type &&
+        holder->box.ctrl->alloc_type != target_type) {
+        return false;
+    }
+    void* casted = holder->box.cast_to(target_type);
+    if (casted == nullptr) {
+        return false;
+    }
+    if (!poly_or_vd && casted != holder->box.ctrl->raw) {
+        return false;
+    }
+    holder->box.ctrl->released = true;
+    holder->box.ptr = nullptr;
+    holder->box.owned = false;
+    holder->box.holder.reset();
+    holder->box.ctrl = nullptr;
     out_ptr = casted;
     return true;
 }

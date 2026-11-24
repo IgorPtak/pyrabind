@@ -56,6 +56,12 @@ const char* r_op_to_dunder(std::string_view op, bool is_unary, const char*& rev_
     if (is_unary && op == "-") {
         return "__neg__";
     }
+    if (is_unary && op == "+") {
+        return "__pos__";
+    }
+    if (is_unary && op == "!") {
+        return "__bool__";
+    }
     if (op == "+") {
         rev_dunder = "__radd__";
         return "__add__";
@@ -71,6 +77,18 @@ const char* r_op_to_dunder(std::string_view op, bool is_unary, const char*& rev_
     if (op == "/") {
         rev_dunder = "__rtruediv__";
         return "__truediv__";
+    }
+    if (op == "%%") {
+        rev_dunder = "__rmod__";
+        return "__mod__";
+    }
+    if (op == "&") {
+        rev_dunder = "__rand__";
+        return "__and__";
+    }
+    if (op == "|") {
+        rev_dunder = "__ror__";
+        return "__or__";
     }
     if (op == "==") {
         flipped_cmp = "__eq__";
@@ -97,6 +115,18 @@ const char* r_op_to_dunder(std::string_view op, bool is_unary, const char*& rev_
         return "__ge__";
     }
     return nullptr;
+}
+
+struct RIterHolder {
+    std::function<SEXP(bool&, SEXP)> next_fn;
+};
+
+void r_iter_finalizer(SEXP xptr) noexcept {
+    void* raw = R_ExternalPtrAddr(xptr);
+    if (raw != nullptr) {
+        delete static_cast<RIterHolder*>(raw);
+        R_ClearExternalPtr(xptr);
+    }
 }
 
 const class_record* find_class_of_sexp(SEXP obj) noexcept {
@@ -229,14 +259,29 @@ SEXP build_module_env_rec(module_record& mod, SEXP disp_env) {
             UNPROTECT(1);
         }
 
+        SEXP static_props_env = PROTECT(cpp11::unwind_protect([&]() {
+            SEXP new_env_fn = Rf_findFun(Rf_install("new.env"), R_BaseNamespace);
+            SEXP args = PROTECT(Rf_lang2(new_env_fn, R_EmptyEnv));
+            SEXP res = Rf_eval(args, R_BaseNamespace);
+            UNPROTECT(1);
+            return res;
+        }));
+        for (const auto& sp : cls.static_properties) {
+            SEXP px = PROTECT(
+                R_MakeExternalPtr(const_cast<property_record*>(&sp), rt.prop_tag, R_NilValue));
+            Rf_defineVar(Rf_install(sp.name.c_str()), px, static_props_env);
+            UNPROTECT(1);
+        }
+
         SEXP cls_xptr =
             PROTECT(R_MakeExternalPtr(const_cast<class_record*>(&cls), rt.cls_tag, R_NilValue));
         SEXP qname_s = PROTECT(Rf_mkString(cls.qualified_name.c_str()));
         SEXP doc_s = PROTECT(Rf_mkString(cls.doc.c_str()));
-        SEXP call = PROTECT(Rf_lang5(make_cls, cls_xptr, qname_s, doc_s, statics_env));
+        SEXP call =
+            PROTECT(Rf_lang6(make_cls, cls_xptr, qname_s, doc_s, statics_env, static_props_env));
         SEXP ctor = PROTECT(cpp11::unwind_protect([&]() { return Rf_eval(call, disp_env); }));
         Rf_defineVar(Rf_install(cls.name.c_str()), ctor, env);
-        UNPROTECT(6);
+        UNPROTECT(7);
     }
 
     for (const auto& en : mod.enums) {
@@ -303,6 +348,21 @@ SEXP r_create_module_env(const char* name, SEXP dispatch_env, void (*init_fn)(mo
         storage_pool.push_back(std::move(mod_rec));
         return out;
     });
+}
+
+SEXP r_wrap_iterator(std::function<SEXP(bool&, SEXP)> next_fn) {
+    auto& rt = RRuntimeState::instance();
+    rt.ensure_symbols();
+    auto* holder = new RIterHolder{std::move(next_fn)};
+    SEXP xptr = PROTECT(R_MakeExternalPtr(holder, rt.iter_tag, R_NilValue));
+    R_RegisterCFinalizerEx(xptr, &r_iter_finalizer, TRUE);
+    SEXP s3 = PROTECT(Rf_mkString("pyrabind_iterator"));
+    Rf_setAttrib(xptr, R_ClassSymbol, s3);
+    if (rt.dispatch_env.data() != R_NilValue) {
+        Rf_setAttrib(xptr, rt.pb_attr_sym, rt.dispatch_env.data());
+    }
+    UNPROTECT(2);
+    return xptr;
 }
 
 extern "C" {
@@ -431,18 +491,31 @@ PYRABIND_R_EXPORT SEXP pyrabind_call_op(SEXP op_sexp, SEXP lhs, SEXP rhs, SEXP u
                 if (!is_unary) {
                     cargs.add_pos(rhs);
                 }
+                auto finalize_op_result = [&](SEXP res) -> SEXP {
+                    if (is_unary && op_name == "!") {
+                        PROTECT(res);
+                        bool truthy = false;
+                        if (!r_to_bool(res, true, truthy)) {
+                            UNPROTECT(1);
+                            throw type_error("__bool__ must return a boolean");
+                        }
+                        UNPROTECT(1);
+                        return r_from_bool(!truthy);
+                    }
+                    return res;
+                };
                 for (const auto& ov : fn->overloads) {
                     bool matched = false;
                     SEXP res = ov.invoke(cargs, false, matched, R_NilValue);
                     if (matched) {
-                        return res;
+                        return finalize_op_result(res);
                     }
                 }
                 for (const auto& ov : fn->overloads) {
                     bool matched = false;
                     SEXP res = ov.invoke(cargs, true, matched, R_NilValue);
                     if (matched) {
-                        return res;
+                        return finalize_op_result(res);
                     }
                 }
             }
@@ -479,6 +552,15 @@ PYRABIND_R_EXPORT SEXP pyrabind_call_special(SEXP obj, SEXP kind_sexp) {
                 return dispatch_overload_list(fn->overloads, cargs, "__repr__", obj);
             }
             return r_from_string("<pyrabind " + h->cls->qualified_name + ">");
+        }
+        if (kind == "abs") {
+            const RInstanceHolder* h = r_unwrap_instance(obj);
+            if (const function_record* fn = h->cls->find_method("__abs__")) {
+                call_args cargs;
+                cargs.add_pos(obj);
+                return dispatch_overload_list(fn->overloads, cargs, "__abs__", obj);
+            }
+            throw type_error("object does not implement __abs__");
         }
         throw value_error("unknown special op '" + kind + "'");
     });
@@ -520,6 +602,58 @@ PYRABIND_R_EXPORT SEXP pyrabind_call_enum_op(SEXP op_sexp, SEXP a_sexp, SEXP b_s
             return r_from_string(text);
         }
         throw value_error("unknown enum op '" + op + "'");
+    });
+}
+
+PYRABIND_R_EXPORT SEXP pyrabind_call_iter_next(SEXP iter_xptr) {
+    return r_error_boundary([&]() -> SEXP {
+        auto& rt = RRuntimeState::instance();
+        rt.ensure_symbols();
+        if (iter_xptr == nullptr || iter_xptr == R_NilValue || TYPEOF(iter_xptr) != EXTPTRSXP ||
+            R_ExternalPtrTag(iter_xptr) != rt.iter_tag) {
+            throw type_error("expected a pyrabind iterator");
+        }
+        auto* h = static_cast<RIterHolder*>(R_ExternalPtrAddr(iter_xptr));
+        if (h == nullptr || !h->next_fn) {
+            throw type_error("invalid pyrabind iterator");
+        }
+        bool done = false;
+        SEXP val = h->next_fn(done, iter_xptr);
+        if (done) {
+            throw stop_iteration("iterator exhausted");
+        }
+        return val;
+    });
+}
+
+PYRABIND_R_EXPORT SEXP pyrabind_call_iter_collect(SEXP iter_xptr) {
+    return r_error_boundary([&]() -> SEXP {
+        auto& rt = RRuntimeState::instance();
+        rt.ensure_symbols();
+        if (iter_xptr == nullptr || iter_xptr == R_NilValue || TYPEOF(iter_xptr) != EXTPTRSXP ||
+            R_ExternalPtrTag(iter_xptr) != rt.iter_tag) {
+            throw type_error("expected a pyrabind iterator");
+        }
+        auto* h = static_cast<RIterHolder*>(R_ExternalPtrAddr(iter_xptr));
+        if (h == nullptr || !h->next_fn) {
+            throw type_error("invalid pyrabind iterator");
+        }
+        std::vector<cpp11::sexp> items;
+        while (true) {
+            bool done = false;
+            SEXP val = h->next_fn(done, iter_xptr);
+            if (done) {
+                break;
+            }
+            items.emplace_back(val);
+        }
+        const R_xlen_t n = static_cast<R_xlen_t>(items.size());
+        SEXP out = PROTECT(cpp11::safe[Rf_allocVector](VECSXP, n));
+        for (R_xlen_t i = 0; i < n; ++i) {
+            SET_VECTOR_ELT(out, i, items[static_cast<std::size_t>(i)].data());
+        }
+        UNPROTECT(1);
+        return out;
     });
 }
 

@@ -110,22 +110,78 @@ private:
 class rv_policy {
 public:
     enum value : std::uint8_t {
-        automatic = 0,
-        automatic_reference,
-        take_ownership,
-        copy,
-        move,
-        reference,
-        reference_internal,
-        none
+        automatic_v = 0,
+        automatic_reference_v,
+        take_ownership_v,
+        copy_v,
+        move_v,
+        reference_v,
+        reference_internal_v,
+        none_v
     };
 
-    constexpr rv_policy(value v = automatic) noexcept : val_(v) {}
+    template <value V> struct policy_tag {
+        static constexpr value policy = V;
+        constexpr operator rv_policy() const noexcept { return rv_policy(V); }
+        constexpr operator value() const noexcept { return V; }
+    };
+
+    constexpr rv_policy(value v = automatic_v) noexcept : val_(v) {}
+    template <value V> constexpr rv_policy(policy_tag<V>) noexcept : val_(V) {}
     constexpr operator value() const noexcept { return val_; }
+
+    static constexpr policy_tag<automatic_v> automatic{};
+    static constexpr policy_tag<automatic_reference_v> automatic_reference{};
+    static constexpr policy_tag<take_ownership_v> take_ownership{};
+    static constexpr policy_tag<copy_v> copy{};
+    static constexpr policy_tag<move_v> move{};
+    static constexpr policy_tag<reference_v> reference{};
+    static constexpr policy_tag<reference_internal_v> reference_internal{};
+    static constexpr policy_tag<none_v> none{};
 
 private:
     value val_;
 };
+
+class handle {
+public:
+    constexpr handle() noexcept = default;
+    constexpr explicit handle(SEXP p) noexcept : ptr_(p) {}
+
+    SEXP ptr() const noexcept { return ptr_; }
+    bool is_valid() const noexcept { return ptr_ != nullptr && ptr_ != R_NilValue; }
+    explicit operator bool() const noexcept { return is_valid(); }
+
+private:
+    SEXP ptr_ = R_NilValue;
+};
+
+template <typename T> inline handle type() noexcept {
+    return handle{};
+}
+
+struct gil_scoped_acquire {
+    gil_scoped_acquire() noexcept = default;
+    ~gil_scoped_acquire() = default;
+    gil_scoped_acquire(const gil_scoped_acquire&) = delete;
+    gil_scoped_acquire& operator=(const gil_scoped_acquire&) = delete;
+    gil_scoped_acquire(gil_scoped_acquire&&) = delete;
+    gil_scoped_acquire& operator=(gil_scoped_acquire&&) = delete;
+
+    bool is_valid() const noexcept { return true; }
+    explicit operator bool() const noexcept { return true; }
+};
+
+struct gil_scoped_release {
+    gil_scoped_release() noexcept = default;
+    ~gil_scoped_release() = default;
+    gil_scoped_release(const gil_scoped_release&) = delete;
+    gil_scoped_release& operator=(const gil_scoped_release&) = delete;
+    gil_scoped_release(gil_scoped_release&&) = delete;
+    gil_scoped_release& operator=(gil_scoped_release&&) = delete;
+};
+
+template <typename... Guards> struct call_guard {};
 
 struct is_method {};
 struct is_operator {};

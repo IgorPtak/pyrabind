@@ -6,12 +6,15 @@
 #include "pyrabind/r/traits.hpp"
 #include "pyrabind/r/types.hpp"
 
+#include <exception>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <typeindex>
 #include <utility>
+#include <vector>
 
 #if defined(_WIN32)
 #define PYRABIND_R_EXPORT __declspec(dllexport)
@@ -23,6 +26,8 @@ namespace pyrabind::r_detail {
 
 // Exported R C-API entry points implemented in src/r/runtime.cpp & src/r/module.cpp.
 SEXP r_create_module_env(const char* name, SEXP dispatch_env, void (*init_fn)(module_record&));
+void r_register_exception_translator(
+    std::function<bool(std::exception_ptr, std::vector<std::string>&, std::string&)> fn);
 
 extern "C" {
 PYRABIND_R_EXPORT SEXP pyrabind_ext_call_fn(SEXP args);
@@ -33,6 +38,8 @@ PYRABIND_R_EXPORT SEXP pyrabind_call_set_prop(SEXP obj, SEXP prop_xptr, SEXP val
 PYRABIND_R_EXPORT SEXP pyrabind_call_op(SEXP op_sexp, SEXP lhs, SEXP rhs, SEXP unary_sexp);
 PYRABIND_R_EXPORT SEXP pyrabind_call_special(SEXP obj, SEXP kind_sexp);
 PYRABIND_R_EXPORT SEXP pyrabind_call_enum_op(SEXP op_sexp, SEXP a, SEXP b);
+PYRABIND_R_EXPORT SEXP pyrabind_call_iter_next(SEXP iter_xptr);
+PYRABIND_R_EXPORT SEXP pyrabind_call_iter_collect(SEXP iter_xptr);
 }
 
 template <typename Derived, typename Base> struct single_base_extractor {
@@ -43,10 +50,6 @@ template <typename Derived, typename Base> struct single_base_extractor {
         };
     }
 };
-
-class module_;
-template <typename T, typename... Bases> class class_;
-template <typename E> class enum_;
 
 } // namespace pyrabind::r_detail
 
@@ -118,6 +121,7 @@ public:
     }
 
     r_detail::module_record* raw() const noexcept { return record_; }
+    operator handle() const noexcept { return handle{}; }
 
 private:
     r_detail::module_record* record_ = nullptr;
@@ -253,6 +257,78 @@ public:
                            std::forward<Extra>(extra)...);
     }
 
+    template <typename Getter, typename Setter, typename... Extra>
+    class_& def_prop_rw_static(const char* name, Getter&& getter, Setter&& setter,
+                               Extra&&... extra) {
+        r_detail::overload_meta meta;
+        meta.policy = rv_policy::reference;
+        (r_detail::apply_extra(meta, std::forward<Extra>(extra)), ...);
+
+        r_detail::property_record prop;
+        prop.name = name != nullptr ? name : "";
+        prop.doc = std::move(meta.doc_str);
+        const rv_policy pol = meta.policy;
+
+        if constexpr (!std::is_same_v<std::decay_t<Getter>, std::nullptr_t>) {
+            using DecayedG = std::decay_t<Getter>;
+            using GTraits = r_detail::function_traits<DecayedG>;
+            prop.getter = [g = DecayedG(std::forward<Getter>(getter)), pol](SEXP) mutable -> SEXP {
+                if constexpr (GTraits::arity == 0) {
+                    return r_detail::to_r_sexp(g(), pol, R_NilValue);
+                } else {
+                    return r_detail::to_r_sexp(g(handle{}), pol, R_NilValue);
+                }
+            };
+        }
+
+        if constexpr (!std::is_same_v<std::decay_t<Setter>, std::nullptr_t>) {
+            using DecayedS = std::decay_t<Setter>;
+            using STraits = r_detail::function_traits<DecayedS>;
+            prop.setter = [s = DecayedS(std::forward<Setter>(setter))](SEXP,
+                                                                       SEXP val_sexp) mutable {
+                if constexpr (STraits::arity == 1) {
+                    using ValArg = std::tuple_element_t<0, typename STraits::args_tuple>;
+                    r_detail::type_caster<r_detail::remove_cvref_t<ValArg>> vc;
+                    if (!vc.from_r(val_sexp, true)) {
+                        throw type_error("invalid value type for static property assignment");
+                    }
+                    s(static_cast<ValArg>(vc.get()));
+                } else {
+                    static_assert(STraits::arity >= 2,
+                                  "static property setter requires a value parameter");
+                    using ValArg = std::tuple_element_t<1, typename STraits::args_tuple>;
+                    r_detail::type_caster<r_detail::remove_cvref_t<ValArg>> vc;
+                    if (!vc.from_r(val_sexp, true)) {
+                        throw type_error("invalid value type for static property assignment");
+                    }
+                    s(handle{}, static_cast<ValArg>(vc.get()));
+                }
+            };
+        }
+
+        record_->static_properties.push_back(std::move(prop));
+        return *this;
+    }
+
+    template <typename Getter, typename... Extra>
+    class_& def_prop_ro_static(const char* name, Getter&& getter, Extra&&... extra) {
+        return def_prop_rw_static(name, std::forward<Getter>(getter), nullptr,
+                                  std::forward<Extra>(extra)...);
+    }
+
+    template <typename D, typename... Extra>
+    class_& def_rw_static(const char* name, D* p, Extra&&... extra) {
+        return def_prop_rw_static(
+            name, [p](handle) -> const D& { return *p; },
+            [p](handle, D val) { *p = std::move(val); }, std::forward<Extra>(extra)...);
+    }
+
+    template <typename D, typename... Extra>
+    class_& def_ro_static(const char* name, const D* p, Extra&&... extra) {
+        return def_prop_ro_static(
+            name, [p](handle) -> const D& { return *p; }, std::forward<Extra>(extra)...);
+    }
+
 private:
     template <typename... Extra>
     void init_class(r_detail::module_record* mod, const char* name, Extra&&... extra) {
@@ -324,6 +400,39 @@ private:
     r_detail::enum_record* record_ = nullptr;
 };
 
+template <typename T> class exception {
+public:
+    exception() = default;
+    exception(module_& mod, const char* name) { init(mod.raw(), name); }
+    exception(module_&& mod, const char* name) { init(mod.raw(), name); }
+
+private:
+    void init(r_detail::module_record* mod, const char* name) {
+        std::string short_name = name != nullptr ? name : "pyrabind_custom_error";
+        std::string cls_name = (mod != nullptr && !mod->qualified_name.empty())
+                                   ? (mod->qualified_name + "." + short_name)
+                                   : short_name;
+        r_detail::r_register_exception_translator(
+            [short_name = std::move(short_name), cls_name = std::move(cls_name)](
+                std::exception_ptr p, std::vector<std::string>& cls_out,
+                std::string& msg_out) -> bool {
+                try {
+                    std::rethrow_exception(p);
+                } catch (const T& e) {
+                    cls_out.clear();
+                    cls_out.push_back(short_name);
+                    if (cls_name != short_name) {
+                        cls_out.push_back(cls_name);
+                    }
+                    msg_out = e.what();
+                    return true;
+                } catch (...) {
+                    return false;
+                }
+            });
+    }
+};
+
 } // namespace pyrabind
 
 #include <R_ext/Rdynload.h>
@@ -346,6 +455,8 @@ inline void register_pyrabind_r_routines(DllInfo* dll, DL_FUNC module_env_fn) {
         {"pyrabind_call_op", nullptr, 4},
         {"pyrabind_call_special", nullptr, 2},
         {"pyrabind_call_enum_op", nullptr, 3},
+        {"pyrabind_iter_next", nullptr, 1},
+        {"pyrabind_iter_collect", nullptr, 1},
         {nullptr, nullptr, 0},
     };
     call_methods[0].fun = module_env_fn;
@@ -354,6 +465,8 @@ inline void register_pyrabind_r_routines(DllInfo* dll, DL_FUNC module_env_fn) {
     call_methods[3].fun = as_dl_func(&pyrabind_call_op);
     call_methods[4].fun = as_dl_func(&pyrabind_call_special);
     call_methods[5].fun = as_dl_func(&pyrabind_call_enum_op);
+    call_methods[6].fun = as_dl_func(&pyrabind_call_iter_next);
+    call_methods[7].fun = as_dl_func(&pyrabind_call_iter_collect);
 
     static R_ExternalMethodDef ext_methods[] = {
         {"pyrabind_ext_call_fn", nullptr, -1},

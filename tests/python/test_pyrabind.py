@@ -243,6 +243,57 @@ class TestPyrabindPython(unittest.TestCase):
         self.assertIsInstance(hash(tm.ModInt(7)), int)
         self.assertAlmostEqual(abs(tm.SignedScalar(-3.5)), 3.5)
 
+    def test_nullable_dataframe_and_arrow(self) -> None:
+        df = pd.DataFrame(
+            {
+                "id": pd.Series([1, pd.NA, 3], dtype="Int64"),
+                "x": [1.5, np.nan, 3.5],
+                "flag": pd.Series([True, pd.NA, False], dtype="boolean"),
+                "tag": ["a", None, "c"],
+            }
+        )
+        self.assertEqual(tm.df_count_nulls(df), 4)
+        echoed = tm.df_echo(df)
+        self.assertEqual(echoed.shape, (3, 4))
+        self.assertTrue(pd.isna(echoed.loc[1, "id"]))
+        self.assertTrue(pd.isna(echoed.loc[1, "x"]))
+        self.assertTrue(pd.isna(echoed.loc[1, "flag"]))
+        self.assertTrue(pd.isna(echoed.loc[1, "tag"]))
+        self.assertEqual(int(echoed.loc[0, "id"]), 1)
+        self.assertEqual(bool(echoed.loc[0, "flag"]), True)
+        self.assertEqual(echoed.loc[2, "tag"], "c")
+
+        batch = tm.df_to_arrow(df)
+        self.assertTrue(hasattr(batch, "__arrow_c_array__"))
+        round_batch = tm.arrow_roundtrip(batch)
+        with self.assertRaises((RuntimeError, TypeError)):
+            tm.arrow_to_df(batch)
+        restored = tm.arrow_to_df(round_batch)
+        self.assertEqual(tm.df_count_nulls(restored), 4)
+        self.assertAlmostEqual(float(restored.loc[2, "x"]), 3.5)
+        self.assertTrue(pd.isna(restored.loc[1, "tag"]))
+
+        try:
+            import pyarrow as pa
+        except ImportError:
+            pa = None
+
+        if pa is not None:
+            pa_batch = pa.RecordBatch.from_arrays(
+                [
+                    pa.array([1, None, 3], type=pa.int64()),
+                    pa.array([1.5, None, 3.5], type=pa.float64()),
+                    pa.array([True, None, False], type=pa.bool_()),
+                    pa.array(["a", None, "c"], type=pa.string()),
+                ],
+                names=["id", "x", "flag", "tag"],
+            )
+            pa_restored = tm.arrow_to_df(pa_batch)
+            self.assertEqual(tm.df_count_nulls(pa_restored), 4)
+            pa_out = pa.record_batch(tm.df_to_arrow(df))
+            self.assertEqual(pa_out.num_rows, 3)
+            self.assertEqual(pa_out.column("tag").to_pylist(), ["a", None, "c"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -845,6 +845,7 @@ SEXP r_export_ndarray(const r_ndarray_export& info) {
 bool r_to_data_frame(SEXP x, bool convert, data_frame& out) {
     out.names.clear();
     out.columns.clear();
+    out.validity.clear();
     if (x == nullptr || x == R_NilValue || TYPEOF(x) != VECSXP) {
         return false;
     }
@@ -884,25 +885,50 @@ bool r_to_data_frame(SEXP x, bool convert, data_frame& out) {
 
         const SEXPTYPE tp = static_cast<SEXPTYPE>(TYPEOF(col_sexp));
         column_data col;
+        std::vector<std::uint8_t> mask;
         if (tp == REALSXP) {
             std::vector<double> vec(static_cast<std::size_t>(n));
             if (n > 0) {
-                std::memcpy(vec.data(), REAL_RO(col_sexp),
-                            static_cast<std::size_t>(n) * sizeof(double));
+                const double* rp = REAL_RO(col_sexp);
+                std::memcpy(vec.data(), rp, static_cast<std::size_t>(n) * sizeof(double));
+                for (R_xlen_t i = 0; i < n; ++i) {
+                    if (ISNAN(rp[i])) {
+                        if (mask.empty()) {
+                            mask.assign(static_cast<std::size_t>(n), 1);
+                        }
+                        mask[static_cast<std::size_t>(i)] = 0;
+                    }
+                }
             }
             col = std::move(vec);
         } else if (tp == INTSXP) {
-            std::vector<std::int32_t> vec(static_cast<std::size_t>(n));
+            std::vector<std::int32_t> vec(static_cast<std::size_t>(n), 0);
             if (n > 0) {
-                std::memcpy(vec.data(), INTEGER_RO(col_sexp),
-                            static_cast<std::size_t>(n) * sizeof(std::int32_t));
+                const int* ip = INTEGER_RO(col_sexp);
+                std::memcpy(vec.data(), ip, static_cast<std::size_t>(n) * sizeof(std::int32_t));
+                for (R_xlen_t i = 0; i < n; ++i) {
+                    if (ip[i] == NA_INTEGER) {
+                        if (mask.empty()) {
+                            mask.assign(static_cast<std::size_t>(n), 1);
+                        }
+                        mask[static_cast<std::size_t>(i)] = 0;
+                        vec[static_cast<std::size_t>(i)] = 0;
+                    }
+                }
             }
             col = std::move(vec);
         } else if (tp == LGLSXP) {
             std::vector<bool> vec(static_cast<std::size_t>(n), false);
             const int* lp = LOGICAL_RO(col_sexp);
             for (R_xlen_t i = 0; i < n; ++i) {
-                vec[static_cast<std::size_t>(i)] = (lp[i] != 0 && lp[i] != NA_LOGICAL);
+                if (lp[i] == NA_LOGICAL) {
+                    if (mask.empty()) {
+                        mask.assign(static_cast<std::size_t>(n), 1);
+                    }
+                    mask[static_cast<std::size_t>(i)] = 0;
+                } else {
+                    vec[static_cast<std::size_t>(i)] = (lp[i] != 0);
+                }
             }
             col = std::move(vec);
         } else if (tp == STRSXP) {
@@ -910,17 +936,20 @@ bool r_to_data_frame(SEXP x, bool convert, data_frame& out) {
             for (R_xlen_t i = 0; i < n; ++i) {
                 SEXP elt = STRING_ELT(col_sexp, i);
                 if (elt == NA_STRING) {
-                    return false;
+                    if (mask.empty()) {
+                        mask.assign(static_cast<std::size_t>(n), 1);
+                    }
+                    mask[static_cast<std::size_t>(i)] = 0;
+                } else {
+                    vec[static_cast<std::size_t>(i)] = translate_r_string(elt);
                 }
-                vec[static_cast<std::size_t>(i)] = translate_r_string(elt);
             }
             col = std::move(vec);
         } else {
             return false;
         }
 
-        out.names.push_back(std::move(col_name));
-        out.columns.push_back(std::move(col));
+        out.add_column(std::move(col_name), std::move(col), std::move(mask));
     }
     return true;
 }
@@ -937,32 +966,117 @@ SEXP r_from_data_frame(const data_frame& df) {
     SEXP col_names = PROTECT(cpp11::safe[Rf_allocVector](STRSXP, ncols));
 
     for (R_xlen_t c = 0; c < ncols; ++c) {
-        const auto& cname = df.names[static_cast<std::size_t>(c)];
+        const std::size_t ci = static_cast<std::size_t>(c);
+        const auto& cname = df.names[ci];
         SEXP nm_ch = PROTECT(cpp11::unwind_protect([&]() {
             return Rf_mkCharLenCE(cname.data(), static_cast<int>(cname.size()), CE_UTF8);
         }));
         SET_STRING_ELT(col_names, c, nm_ch);
         UNPROTECT(1);
 
+        const bool has_null = df.has_nulls(ci);
+
         SEXP col_sexp = std::visit(
             [&](const auto& vec) -> SEXP {
                 using VecT = std::decay_t<decltype(vec)>;
                 if constexpr (std::is_same_v<VecT, std::vector<double>>) {
-                    return type_caster<std::vector<double>>::to_r(vec, rv_policy::copy, R_NilValue);
+                    SEXP res = PROTECT(
+                        type_caster<std::vector<double>>::to_r(vec, rv_policy::copy, R_NilValue));
+                    if (has_null) {
+                        double* rp = REAL(res);
+                        for (R_xlen_t i = 0; i < nrows; ++i) {
+                            if (df.is_null(ci, static_cast<std::size_t>(i))) {
+                                rp[i] = NA_REAL;
+                            }
+                        }
+                    }
+                    UNPROTECT(1);
+                    return res;
                 } else if constexpr (std::is_same_v<VecT, std::vector<std::int64_t>>) {
-                    return type_caster<std::vector<std::int64_t>>::to_r(vec, rv_policy::copy,
-                                                                        R_NilValue);
+                    if (!has_null) {
+                        return type_caster<std::vector<std::int64_t>>::to_r(vec, rv_policy::copy,
+                                                                            R_NilValue);
+                    }
+                    bool fits_int32 = true;
+                    for (R_xlen_t i = 0; i < nrows; ++i) {
+                        if (!df.is_null(ci, static_cast<std::size_t>(i))) {
+                            const auto v = vec[static_cast<std::size_t>(i)];
+                            if (v <= static_cast<std::int64_t>(NA_INTEGER) || v > 2147483647LL) {
+                                fits_int32 = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (fits_int32) {
+                        SEXP res = PROTECT(cpp11::safe[Rf_allocVector](INTSXP, nrows));
+                        int* ip = INTEGER(res);
+                        for (R_xlen_t i = 0; i < nrows; ++i) {
+                            ip[i] = df.is_null(ci, static_cast<std::size_t>(i))
+                                        ? NA_INTEGER
+                                        : static_cast<int>(vec[static_cast<std::size_t>(i)]);
+                        }
+                        UNPROTECT(1);
+                        return res;
+                    }
+                    SEXP res = PROTECT(cpp11::safe[Rf_allocVector](REALSXP, nrows));
+                    double* rp = REAL(res);
+                    for (R_xlen_t i = 0; i < nrows; ++i) {
+                        rp[i] = df.is_null(ci, static_cast<std::size_t>(i))
+                                    ? NA_REAL
+                                    : static_cast<double>(vec[static_cast<std::size_t>(i)]);
+                    }
+                    UNPROTECT(1);
+                    return res;
                 } else if constexpr (std::is_same_v<VecT, std::vector<std::int32_t>>) {
-                    return type_caster<std::vector<std::int32_t>>::to_r(vec, rv_policy::copy,
-                                                                        R_NilValue);
+                    SEXP res = PROTECT(type_caster<std::vector<std::int32_t>>::to_r(
+                        vec, rv_policy::copy, R_NilValue));
+                    if (has_null) {
+                        int* ip = INTEGER(res);
+                        for (R_xlen_t i = 0; i < nrows; ++i) {
+                            if (df.is_null(ci, static_cast<std::size_t>(i))) {
+                                ip[i] = NA_INTEGER;
+                            }
+                        }
+                    }
+                    UNPROTECT(1);
+                    return res;
                 } else if constexpr (std::is_same_v<VecT, std::vector<bool>>) {
-                    return type_caster<std::vector<bool>>::to_r(vec, rv_policy::copy, R_NilValue);
+                    SEXP res = PROTECT(
+                        type_caster<std::vector<bool>>::to_r(vec, rv_policy::copy, R_NilValue));
+                    if (has_null) {
+                        int* lp = LOGICAL(res);
+                        for (R_xlen_t i = 0; i < nrows; ++i) {
+                            if (df.is_null(ci, static_cast<std::size_t>(i))) {
+                                lp[i] = NA_LOGICAL;
+                            }
+                        }
+                    }
+                    UNPROTECT(1);
+                    return res;
                 } else {
-                    return type_caster<std::vector<std::string>>::to_r(vec, rv_policy::copy,
-                                                                       R_NilValue);
+                    if (!has_null) {
+                        return type_caster<std::vector<std::string>>::to_r(vec, rv_policy::copy,
+                                                                           R_NilValue);
+                    }
+                    SEXP res = PROTECT(cpp11::safe[Rf_allocVector](STRSXP, nrows));
+                    for (R_xlen_t i = 0; i < nrows; ++i) {
+                        const std::size_t ri = static_cast<std::size_t>(i);
+                        if (df.is_null(ci, ri)) {
+                            SET_STRING_ELT(res, i, NA_STRING);
+                        } else {
+                            SEXP ch = PROTECT(cpp11::unwind_protect([&]() {
+                                return Rf_mkCharLenCE(vec[ri].data(),
+                                                      static_cast<int>(vec[ri].size()), CE_UTF8);
+                            }));
+                            SET_STRING_ELT(res, i, ch);
+                            UNPROTECT(1);
+                        }
+                    }
+                    UNPROTECT(1);
+                    return res;
                 }
             },
-            df.columns[static_cast<std::size_t>(c)]);
+            df.columns[ci]);
         SET_VECTOR_ELT(out, c, col_sexp);
     }
 

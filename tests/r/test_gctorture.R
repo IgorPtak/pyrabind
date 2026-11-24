@@ -122,6 +122,17 @@ stopifnot(identical(dim(out2), c(3L, 4L)), out2[2L, 1L] == 11.0)
 res_df <- tm$transform_df(df)
 stopifnot(max(abs(res_df$scaled - c(4.0, 7.0, 10.0))) < 1e-12)
 
+null_df <- data.frame(
+    id = c(1L, NA_integer_, 3L),
+    x = c(1.5, NA_real_, 3.5),
+    flag = c(TRUE, NA, FALSE),
+    tag = c("a", NA_character_, "c"),
+    stringsAsFactors = FALSE
+)
+stopifnot(tm$df_count_nulls(null_df) == 4L)
+abatch <- tm$arrow_roundtrip(tm$df_to_arrow(null_df))
+stopifnot(tm$df_count_nulls(tm$arrow_to_df(abatch)) == 4L)
+
 gctorture(FALSE)
 gc(FALSE)
 cat("gctorture(TRUE) R stress test passed\n")

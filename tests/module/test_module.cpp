@@ -1,3 +1,4 @@
+#include "pyrabind/arrow.hpp"
 #include "pyrabind/dataframe.hpp"
 #include "pyrabind/make_iterator.hpp"
 #include "pyrabind/ndarray.hpp"
@@ -487,6 +488,36 @@ void set_opaque_entry(OpaqueMap& mp, const std::string& key, const OpaqueItem& i
     mp[key] = item;
 }
 
+std::size_t df_count_nulls(const nb::data_frame& df) {
+    std::size_t count = 0;
+    const std::size_t nr = df.nrows();
+    for (std::size_t c = 0; c < df.ncols(); ++c) {
+        for (std::size_t r = 0; r < nr; ++r) {
+            if (df.is_null(c, r)) {
+                ++count;
+            }
+        }
+    }
+    return count;
+}
+
+nb::data_frame df_echo(const nb::data_frame& df) {
+    return df;
+}
+
+nb::arrow_batch df_to_arrow(nb::data_frame df) {
+    return nb::export_to_arrow(std::move(df));
+}
+
+nb::data_frame arrow_to_df(const nb::arrow_batch& batch) {
+    return nb::import_from_arrow(batch);
+}
+
+nb::arrow_batch arrow_roundtrip(nb::arrow_batch batch) {
+    nb::data_frame df = nb::import_from_arrow(batch);
+    return nb::export_to_arrow(std::move(df));
+}
+
 } // namespace
 
 PYRABIND_MODULE(test_module, m) {
@@ -675,4 +706,10 @@ PYRABIND_MODULE(test_module, m) {
         .def(nb::init<double>(), "value"_a)
         .def_ro("value", &SignedScalar::value)
         .def(nb::abs(nb::self));
+
+    m.def("df_count_nulls", &df_count_nulls, "df"_a);
+    m.def("df_echo", &df_echo, "df"_a);
+    m.def("df_to_arrow", &df_to_arrow, "df"_a);
+    m.def("arrow_to_df", &arrow_to_df, "batch"_a);
+    m.def("arrow_roundtrip", &arrow_roundtrip, "batch"_a);
 }

@@ -4,9 +4,11 @@
 
 #include <nanobind/nanobind.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <variant>
 #include <vector>
@@ -56,6 +58,8 @@ struct PyBufGuard {
 struct CachedPyDataApis {
     PyObject* np_empty = nullptr;
     PyObject* pd_dataframe = nullptr;
+    PyObject* pd_array = nullptr;
+    PyObject* pd_na = nullptr;
     bool np_checked = false;
     bool pd_checked = false;
 };
@@ -81,20 +85,36 @@ inline PyObject* get_numpy_empty() noexcept {
     return st.np_empty;
 }
 
-inline PyObject* get_pandas_dataframe_cls() noexcept {
+inline void ensure_pandas_apis() noexcept {
     auto& st = cached_apis();
     if (!st.pd_checked) {
         st.pd_checked = true;
         PyObject* pd_mod = PyImport_ImportModule("pandas");
         if (pd_mod != nullptr) {
             st.pd_dataframe = PyObject_GetAttrString(pd_mod, "DataFrame");
+            st.pd_array = PyObject_GetAttrString(pd_mod, "array");
+            st.pd_na = PyObject_GetAttrString(pd_mod, "NA");
             Py_DECREF(pd_mod);
         }
         if (PyErr_Occurred()) {
             PyErr_Clear();
         }
     }
-    return st.pd_dataframe;
+}
+
+inline PyObject* get_pandas_dataframe_cls() noexcept {
+    ensure_pandas_apis();
+    return cached_apis().pd_dataframe;
+}
+
+inline PyObject* get_pandas_array_fn() noexcept {
+    ensure_pandas_apis();
+    return cached_apis().pd_array;
+}
+
+inline PyObject* get_pandas_na() noexcept {
+    ensure_pandas_apis();
+    return cached_apis().pd_na;
 }
 
 inline bool py_str_to_std(PyObject* obj, std::string& out) noexcept {
@@ -108,25 +128,39 @@ inline bool py_str_to_std(PyObject* obj, std::string& out) noexcept {
     return true;
 }
 
-inline bool extract_sequence_column(PyObject* seq_obj, column_data& out) noexcept {
-    PyRefGuard seq(PySequence_Fast(seq_obj, "expected column sequence"));
-    if (seq.ptr == nullptr) {
-        PyErr_Clear();
-        return false;
+inline bool is_py_null(PyObject* item, PyObject* pd_na) noexcept {
+    if (item == nullptr || item == Py_None || (pd_na != nullptr && item == pd_na)) {
+        return true;
     }
-    const Py_ssize_t n = PySequence_Fast_GET_SIZE(seq.ptr);
-    PyObject** items = PySequence_Fast_ITEMS(seq.ptr);
+    if (PyFloat_Check(item)) {
+        return std::isnan(PyFloat_AS_DOUBLE(item));
+    }
+    return false;
+}
+
+inline bool extract_object_items(PyObject* const* items, Py_ssize_t n, column_data& out,
+                                 std::vector<std::uint8_t>& out_mask) noexcept {
+    out_mask.clear();
     if (n == 0) {
         out = std::vector<double>{};
         return true;
     }
 
+    PyObject* pd_na = get_pandas_na();
     bool all_bool = true;
     bool all_int = true;
     bool all_num = true;
     bool all_str = true;
+    bool any_non_null = false;
+    bool any_null = false;
+
     for (Py_ssize_t i = 0; i < n; ++i) {
         PyObject* item = items[i];
+        if (is_py_null(item, pd_na)) {
+            any_null = true;
+            continue;
+        }
+        any_non_null = true;
         if (item == Py_True || item == Py_False) {
             all_str = false;
             continue;
@@ -147,17 +181,36 @@ inline bool extract_sequence_column(PyObject* seq_obj, column_data& out) noexcep
         }
     }
 
+    if (!any_non_null) {
+        out = std::vector<double>(static_cast<std::size_t>(n),
+                                  std::numeric_limits<double>::quiet_NaN());
+        out_mask.assign(static_cast<std::size_t>(n), 0);
+        return true;
+    }
+
+    if (any_null) {
+        out_mask.assign(static_cast<std::size_t>(n), 1);
+    }
+
     if (all_bool) {
         std::vector<bool> vec(static_cast<std::size_t>(n), false);
         for (Py_ssize_t i = 0; i < n; ++i) {
-            vec[static_cast<std::size_t>(i)] = (items[i] == Py_True);
+            if (is_py_null(items[i], pd_na)) {
+                out_mask[static_cast<std::size_t>(i)] = 0;
+            } else {
+                vec[static_cast<std::size_t>(i)] = (items[i] == Py_True);
+            }
         }
         out = std::move(vec);
         return true;
     }
     if (all_int) {
-        std::vector<std::int64_t> vec(static_cast<std::size_t>(n));
+        std::vector<std::int64_t> vec(static_cast<std::size_t>(n), 0);
         for (Py_ssize_t i = 0; i < n; ++i) {
+            if (is_py_null(items[i], pd_na)) {
+                out_mask[static_cast<std::size_t>(i)] = 0;
+                continue;
+            }
             int overflow = 0;
             const long long v = PyLong_AsLongLongAndOverflow(items[i], &overflow);
             if (overflow != 0 || (v == -1 && PyErr_Occurred())) {
@@ -170,8 +223,13 @@ inline bool extract_sequence_column(PyObject* seq_obj, column_data& out) noexcep
         return true;
     }
     if (all_num) {
-        std::vector<double> vec(static_cast<std::size_t>(n));
+        std::vector<double> vec(static_cast<std::size_t>(n), 0.0);
         for (Py_ssize_t i = 0; i < n; ++i) {
+            if (is_py_null(items[i], pd_na)) {
+                out_mask[static_cast<std::size_t>(i)] = 0;
+                vec[static_cast<std::size_t>(i)] = std::numeric_limits<double>::quiet_NaN();
+                continue;
+            }
             const double v = PyFloat_AsDouble(items[i]);
             if (v == -1.0 && PyErr_Occurred()) {
                 PyErr_Clear();
@@ -185,6 +243,10 @@ inline bool extract_sequence_column(PyObject* seq_obj, column_data& out) noexcep
     if (all_str) {
         std::vector<std::string> vec(static_cast<std::size_t>(n));
         for (Py_ssize_t i = 0; i < n; ++i) {
+            if (is_py_null(items[i], pd_na)) {
+                out_mask[static_cast<std::size_t>(i)] = 0;
+                continue;
+            }
             if (!py_str_to_std(items[i], vec[static_cast<std::size_t>(i)])) {
                 return false;
             }
@@ -195,7 +257,38 @@ inline bool extract_sequence_column(PyObject* seq_obj, column_data& out) noexcep
     return false;
 }
 
-inline bool extract_column(PyObject* col_obj, column_data& out) noexcept {
+inline bool extract_sequence_column(PyObject* seq_obj, column_data& out,
+                                    std::vector<std::uint8_t>& out_mask) noexcept {
+    PyRefGuard seq(PySequence_Fast(seq_obj, "expected column sequence"));
+    if (seq.ptr == nullptr) {
+        PyErr_Clear();
+        return false;
+    }
+    const Py_ssize_t n = PySequence_Fast_GET_SIZE(seq.ptr);
+    PyObject** items = PySequence_Fast_ITEMS(seq.ptr);
+    return extract_object_items(items, n, out, out_mask);
+}
+
+inline void build_float_null_mask(const std::vector<double>& vec,
+                                  std::vector<std::uint8_t>& out_mask) noexcept {
+    out_mask.clear();
+    const std::size_t n = vec.size();
+    for (std::size_t i = 0; i < n; ++i) {
+        if (std::isnan(vec[i])) {
+            out_mask.assign(n, 1);
+            for (std::size_t j = i; j < n; ++j) {
+                if (std::isnan(vec[j])) {
+                    out_mask[j] = 0;
+                }
+            }
+            return;
+        }
+    }
+}
+
+inline bool extract_column(PyObject* col_obj, column_data& out,
+                           std::vector<std::uint8_t>& out_mask) noexcept {
+    out_mask.clear();
     PyRefGuard owned_arr;
     PyObject* target = col_obj;
     if (PyObject_CheckBuffer(col_obj) == 0) {
@@ -237,6 +330,7 @@ inline bool extract_column(PyObject* col_obj, column_data& out) noexcept {
                                 *reinterpret_cast<const double*>(base + i * stride);
                         }
                     }
+                    build_float_null_mask(vec, out_mask);
                     out = std::move(vec);
                     return true;
                 }
@@ -246,6 +340,7 @@ inline bool extract_column(PyObject* col_obj, column_data& out) noexcept {
                         vec[static_cast<std::size_t>(i)] =
                             static_cast<double>(*reinterpret_cast<const float*>(base + i * stride));
                     }
+                    build_float_null_mask(vec, out_mask);
                     out = std::move(vec);
                     return true;
                 }
@@ -287,18 +382,12 @@ inline bool extract_column(PyObject* col_obj, column_data& out) noexcept {
                     return true;
                 }
                 if (fmt == 'O' && itemsize == static_cast<Py_ssize_t>(sizeof(PyObject*))) {
-                    std::vector<std::string> vec(static_cast<std::size_t>(n));
-                    bool ok = true;
+                    std::vector<PyObject*> items(static_cast<std::size_t>(n));
                     for (Py_ssize_t i = 0; i < n; ++i) {
-                        PyObject* elt = *reinterpret_cast<PyObject* const*>(base + i * stride);
-                        if (elt == nullptr || !PyUnicode_Check(elt) ||
-                            !py_str_to_std(elt, vec[static_cast<std::size_t>(i)])) {
-                            ok = false;
-                            break;
-                        }
+                        items[static_cast<std::size_t>(i)] =
+                            *reinterpret_cast<PyObject* const*>(base + i * stride);
                     }
-                    if (ok) {
-                        out = std::move(vec);
+                    if (extract_object_items(items.data(), n, out, out_mask)) {
                         return true;
                     }
                 }
@@ -308,11 +397,25 @@ inline bool extract_column(PyObject* col_obj, column_data& out) noexcept {
         }
     }
 
-    return extract_sequence_column(target, out);
+    return extract_sequence_column(target, out, out_mask);
 }
 
-inline PyObject* column_to_python(const column_data& col) noexcept {
+inline PyObject* column_to_python(const column_data& col,
+                                  const std::vector<std::uint8_t>* mask) noexcept {
     PyObject* np_empty = get_numpy_empty();
+    bool has_null = false;
+    if (mask != nullptr && !mask->empty()) {
+        for (std::uint8_t v : *mask) {
+            if (v == 0) {
+                has_null = true;
+                break;
+            }
+        }
+    }
+    auto is_null_row = [&](std::size_t r) -> bool {
+        return has_null && r < mask->size() && (*mask)[r] == 0;
+    };
+
     return std::visit(
         [&](const auto& vec) -> PyObject* {
             using VecT = std::decay_t<decltype(vec)>;
@@ -323,6 +426,11 @@ inline PyObject* column_to_python(const column_data& col) noexcept {
                     return nullptr;
                 }
                 for (Py_ssize_t i = 0; i < n; ++i) {
+                    if (is_null_row(static_cast<std::size_t>(i))) {
+                        Py_INCREF(Py_None);
+                        PyList_SET_ITEM(lst.ptr, i, Py_None);
+                        continue;
+                    }
                     const auto& s = vec[static_cast<std::size_t>(i)];
                     PyObject* py_s =
                         PyUnicode_FromStringAndSize(s.data(), static_cast<Py_ssize_t>(s.size()));
@@ -333,7 +441,7 @@ inline PyObject* column_to_python(const column_data& col) noexcept {
                 }
                 return lst.release();
             } else if constexpr (std::is_same_v<VecT, std::vector<bool>>) {
-                if (np_empty != nullptr) {
+                if (!has_null && np_empty != nullptr) {
                     PyRefGuard arr(PyObject_CallFunction(np_empty, "ns", n, "?"));
                     if (arr.ptr != nullptr) {
                         PyBufGuard bg;
@@ -354,21 +462,39 @@ inline PyObject* column_to_python(const column_data& col) noexcept {
                     return nullptr;
                 }
                 for (Py_ssize_t i = 0; i < n; ++i) {
-                    PyObject* py_b = PyBool_FromLong(vec[static_cast<std::size_t>(i)] ? 1 : 0);
-                    PyList_SET_ITEM(lst.ptr, i, py_b);
+                    if (is_null_row(static_cast<std::size_t>(i))) {
+                        Py_INCREF(Py_None);
+                        PyList_SET_ITEM(lst.ptr, i, Py_None);
+                    } else {
+                        PyObject* py_b = PyBool_FromLong(vec[static_cast<std::size_t>(i)] ? 1 : 0);
+                        PyList_SET_ITEM(lst.ptr, i, py_b);
+                    }
+                }
+                if (has_null) {
+                    if (PyObject* pd_arr = get_pandas_array_fn()) {
+                        PyObject* ea = PyObject_CallFunction(pd_arr, "Os", lst.ptr, "boolean");
+                        if (ea != nullptr) {
+                            return ea;
+                        }
+                        PyErr_Clear();
+                    }
                 }
                 return lst.release();
             } else {
                 using T = typename VecT::value_type;
                 const char* fmt = nullptr;
+                const char* nullable_dtype = nullptr;
                 if constexpr (std::is_same_v<T, double>) {
                     fmt = "d";
                 } else if constexpr (std::is_same_v<T, std::int64_t>) {
                     fmt = "q";
+                    nullable_dtype = "Int64";
                 } else if constexpr (std::is_same_v<T, std::int32_t>) {
                     fmt = "i";
+                    nullable_dtype = "Int32";
                 }
-                if (np_empty != nullptr && fmt != nullptr) {
+                if (np_empty != nullptr && fmt != nullptr &&
+                    (!has_null || std::is_same_v<T, double>)) {
                     PyRefGuard arr(PyObject_CallFunction(np_empty, "ns", n, fmt));
                     if (arr.ptr != nullptr) {
                         PyBufGuard bg;
@@ -378,6 +504,16 @@ inline PyObject* column_to_python(const column_data& col) noexcept {
                             if (n > 0) {
                                 std::memcpy(bg.view.buf, vec.data(),
                                             static_cast<std::size_t>(n) * sizeof(T));
+                            }
+                            if constexpr (std::is_same_v<T, double>) {
+                                if (has_null) {
+                                    auto* dp = static_cast<double*>(bg.view.buf);
+                                    for (Py_ssize_t i = 0; i < n; ++i) {
+                                        if (is_null_row(static_cast<std::size_t>(i))) {
+                                            dp[i] = std::numeric_limits<double>::quiet_NaN();
+                                        }
+                                    }
+                                }
                             }
                             return arr.release();
                         }
@@ -389,6 +525,11 @@ inline PyObject* column_to_python(const column_data& col) noexcept {
                     return nullptr;
                 }
                 for (Py_ssize_t i = 0; i < n; ++i) {
+                    if (is_null_row(static_cast<std::size_t>(i))) {
+                        Py_INCREF(Py_None);
+                        PyList_SET_ITEM(lst.ptr, i, Py_None);
+                        continue;
+                    }
                     PyObject* item = nullptr;
                     if constexpr (std::is_same_v<T, double>) {
                         item = PyFloat_FromDouble(vec[static_cast<std::size_t>(i)]);
@@ -400,6 +541,15 @@ inline PyObject* column_to_python(const column_data& col) noexcept {
                         return nullptr;
                     }
                     PyList_SET_ITEM(lst.ptr, i, item);
+                }
+                if (has_null && nullable_dtype != nullptr) {
+                    if (PyObject* pd_arr = get_pandas_array_fn()) {
+                        PyObject* ea = PyObject_CallFunction(pd_arr, "Os", lst.ptr, nullable_dtype);
+                        if (ea != nullptr) {
+                            return ea;
+                        }
+                        PyErr_Clear();
+                    }
                 }
                 return lst.release();
             }
@@ -417,6 +567,7 @@ template <> struct type_caster<pyrabind::data_frame> {
     bool from_python(handle src, uint32_t, cleanup_list*) noexcept {
         value.names.clear();
         value.columns.clear();
+        value.validity.clear();
         PyObject* obj = src.ptr();
 
         if (PyDict_Check(obj)) {
@@ -431,8 +582,9 @@ template <> struct type_caster<pyrabind::data_frame> {
                 }
                 std::string col_name;
                 pyrabind::column_data col;
+                std::vector<std::uint8_t> mask;
                 if (!pyrabind::py_detail::py_str_to_std(key, col_name) ||
-                    !pyrabind::py_detail::extract_column(val, col)) {
+                    !pyrabind::py_detail::extract_column(val, col, mask)) {
                     return false;
                 }
                 const std::size_t len = pyrabind::column_size(col);
@@ -442,8 +594,7 @@ template <> struct type_caster<pyrabind::data_frame> {
                 } else if (len != expected_rows) {
                     return false;
                 }
-                value.names.push_back(std::move(col_name));
-                value.columns.push_back(std::move(col));
+                value.add_column(std::move(col_name), std::move(col), std::move(mask));
             }
             return true;
         }
@@ -476,7 +627,8 @@ template <> struct type_caster<pyrabind::data_frame> {
                     return false;
                 }
                 pyrabind::column_data col;
-                if (!pyrabind::py_detail::extract_column(col_obj.ptr, col)) {
+                std::vector<std::uint8_t> mask;
+                if (!pyrabind::py_detail::extract_column(col_obj.ptr, col, mask)) {
                     return false;
                 }
                 const std::size_t len = pyrabind::column_size(col);
@@ -486,8 +638,7 @@ template <> struct type_caster<pyrabind::data_frame> {
                 } else if (len != expected_rows) {
                     return false;
                 }
-                value.names.push_back(std::move(col_name));
-                value.columns.push_back(std::move(col));
+                value.add_column(std::move(col_name), std::move(col), std::move(mask));
             }
             return true;
         }
@@ -506,8 +657,10 @@ template <> struct type_caster<pyrabind::data_frame> {
             return {};
         }
         for (std::size_t i = 0; i < df.columns.size(); ++i) {
+            const std::vector<std::uint8_t>* mask_ptr =
+                i < df.validity.size() ? &df.validity[i] : nullptr;
             pyrabind::py_detail::PyRefGuard col_py(
-                pyrabind::py_detail::column_to_python(df.columns[i]));
+                pyrabind::py_detail::column_to_python(df.columns[i], mask_ptr));
             if (col_py.ptr == nullptr) {
                 return {};
             }

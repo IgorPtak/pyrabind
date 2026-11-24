@@ -264,4 +264,41 @@ stopifnot(m5$value == 2L)
 stopifnot(is.numeric(tm$ModInt(7L)$`__hash__`()))
 stopifnot(abs(abs(tm$SignedScalar(-3.5)) - 3.5) < 1e-12)
 
+# 19. Nullable data_frame and zero-copy Arrow C Data Interface
+null_df <- data.frame(
+    id = c(1L, NA_integer_, 3L),
+    x = c(1.5, NA_real_, 3.5),
+    flag = c(TRUE, NA, FALSE),
+    tag = c("a", NA_character_, "c"),
+    stringsAsFactors = FALSE
+)
+stopifnot(tm$df_count_nulls(null_df) == 4L)
+echo_df <- tm$df_echo(null_df)
+stopifnot(identical(dim(echo_df), c(3L, 4L)))
+stopifnot(is.na(echo_df$id[[2L]]), echo_df$id[[1L]] == 1L, echo_df$id[[3L]] == 3L)
+stopifnot(is.na(echo_df$x[[2L]]), abs(echo_df$x[[3L]] - 3.5) < 1e-12)
+stopifnot(is.na(echo_df$flag[[2L]]), isTRUE(echo_df$flag[[1L]]), identical(echo_df$flag[[3L]], FALSE))
+stopifnot(is.na(echo_df$tag[[2L]]), echo_df$tag[[1L]] == "a", echo_df$tag[[3L]] == "c")
+
+abatch <- tm$df_to_arrow(null_df)
+stopifnot(inherits(abatch, "nanoarrow_array"))
+round_abatch <- tm$arrow_roundtrip(abatch)
+moved_arrow_err <- tryCatch({
+    tm$arrow_to_df(abatch)
+    FALSE
+}, error = function(e) TRUE)
+stopifnot(moved_arrow_err)
+
+arrow_df <- tm$arrow_to_df(round_abatch)
+stopifnot(tm$df_count_nulls(arrow_df) == 4L)
+stopifnot(is.na(arrow_df$tag[[2L]]), arrow_df$tag[[3L]] == "c")
+
+if (requireNamespace("nanoarrow", quietly = TRUE)) {
+    stopifnot(inherits(nanoarrow::infer_nanoarrow_schema(tm$df_to_arrow(null_df)), "nanoarrow_schema"))
+    na_conv <- nanoarrow::convert_array(tm$df_to_arrow(null_df))
+    stopifnot(is.na(na_conv$tag[[2L]]), na_conv$id[[1L]] == 1L)
+    na_back <- tm$arrow_to_df(nanoarrow::as_nanoarrow_array(null_df))
+    stopifnot(tm$df_count_nulls(na_back) == 4L, na_back$tag[[3L]] == "c")
+}
+
 cat("All pyrabind R tests passed\n")

@@ -21,6 +21,22 @@ if(RSCRIPT_EXECUTABLE)
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET
     )
+    execute_process(
+        COMMAND "${RSCRIPT_EXECUTABLE}" -e "cat(R.home('bin'))"
+        OUTPUT_VARIABLE R_BIN_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+endif()
+
+if(R_INCLUDE_DIR)
+    file(TO_CMAKE_PATH "${R_INCLUDE_DIR}" R_INCLUDE_DIR)
+endif()
+if(R_LIB_DIR)
+    file(TO_CMAKE_PATH "${R_LIB_DIR}" R_LIB_DIR)
+endif()
+if(R_BIN_DIR)
+    file(TO_CMAKE_PATH "${R_BIN_DIR}" R_BIN_DIR)
 endif()
 
 if(NOT R_SHLIB_EXT)
@@ -31,9 +47,9 @@ if(NOT R_SHLIB_EXT)
     endif()
 endif()
 
-find_library(R_LIBRARY NAMES R HINTS "${R_LIB_DIR}" NO_DEFAULT_PATH)
+find_library(R_LIBRARY NAMES R HINTS "${R_LIB_DIR}" "${R_BIN_DIR}/x64" "${R_BIN_DIR}" NO_DEFAULT_PATH)
 if(NOT R_LIBRARY)
-    find_library(R_LIBRARY NAMES R)
+    find_library(R_LIBRARY NAMES R HINTS "${R_LIB_DIR}" "${R_BIN_DIR}/x64" "${R_BIN_DIR}")
 endif()
 
 include(FindPackageHandleStandardArgs)

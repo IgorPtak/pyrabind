@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(pyrabind VERSION 0.1.0 LANGUAGES CXX)
+project(pyrabind VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,7 @@ option(PYRABIND_BUILD_R "Build R shared modules using cpp11" ON)
 option(PYRABIND_BUILD_TESTS "Build the pyrabind test suite" ON)
 option(PYRABIND_BUILD_EXAMPLES "Build pyrabind examples" ON)
 option(PYRABIND_BUILD_BENCHMARKS "Build pyrabind overhead benchmarks" ON)
+option(PYRABIND_ENABLE_SANITIZERS "Enable Address and UndefinedBehavior sanitizers on non-MSVC targets" OFF)
 
 add_library(pyrabind_core INTERFACE)
 add_library(pyrabind::core ALIAS pyrabind_core)
@@ -25,6 +26,9 @@ target_include_directories(pyrabind_core INTERFACE
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_compile_features(pyrabind_core INTERFACE cxx_std_20)
+target_compile_definitions(pyrabind_core INTERFACE
+    $<$<PLATFORM_ID:Windows>:NOMINMAX;WIN32_LEAN_AND_MEAN>
+)
 
 set(_pyrabind_export_targets pyrabind_core)
 

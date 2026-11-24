@@ -8,6 +8,23 @@ function(pyrabind_apply_strict_warnings target_name)
     else()
         target_compile_options(${target_name} PRIVATE -Wall -Wextra -Wpedantic -Wshadow)
     endif()
+    if(PYRABIND_ENABLE_SANITIZERS AND NOT MSVC)
+        target_compile_options(${target_name} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+        target_link_options(${target_name} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    endif()
+endfunction()
+
+function(pyrabind_set_module_output_dirs target_name out_dir)
+    set_target_properties(${target_name} PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${out_dir}"
+        RUNTIME_OUTPUT_DIRECTORY "${out_dir}"
+        LIBRARY_OUTPUT_DIRECTORY_RELEASE "${out_dir}"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${out_dir}"
+        LIBRARY_OUTPUT_DIRECTORY_DEBUG "${out_dir}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${out_dir}"
+        LIBRARY_OUTPUT_DIRECTORY_RELWITHDEBINFO "${out_dir}"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${out_dir}"
+    )
 endfunction()
 
 function(pyrabind_add_module name)
@@ -31,8 +48,8 @@ function(pyrabind_add_module name)
         nanobind_add_module(${name}_py ${_nb_flags} ${ARG_SOURCES})
         set_target_properties(${name}_py PROPERTIES
             OUTPUT_NAME "${name}"
-            LIBRARY_OUTPUT_DIRECTORY "${_out_dir}/python"
         )
+        pyrabind_set_module_output_dirs(${name}_py "${_out_dir}/python")
         target_link_libraries(${name}_py PRIVATE pyrabind::python ${ARG_LINK_LIBRARIES})
         pyrabind_apply_strict_warnings(${name}_py)
     endif()
@@ -43,11 +60,11 @@ function(pyrabind_add_module name)
             PREFIX ""
             OUTPUT_NAME "${name}"
             SUFFIX "${R_SHLIB_EXT}"
-            LIBRARY_OUTPUT_DIRECTORY "${_out_dir}/r"
             BUILD_RPATH "${R_LIB_DIR}"
             CXX_VISIBILITY_PRESET hidden
             VISIBILITY_INLINES_HIDDEN ON
         )
+        pyrabind_set_module_output_dirs(${name}_r "${_out_dir}/r")
         target_link_libraries(${name}_r PRIVATE pyrabind::r ${ARG_LINK_LIBRARIES})
         pyrabind_apply_strict_warnings(${name}_r)
     endif()

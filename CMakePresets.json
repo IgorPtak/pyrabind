@@ -21,6 +21,21 @@
         "CMAKE_CXX_STANDARD": "20",
         "Python_EXECUTABLE": "/Users/ptak/.pyenv/versions/3.12.8/bin/python3"
       }
+    },
+    {
+      "name": "asan-ubsan",
+      "displayName": "ASan + UBSan Core C++ Build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-asan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_STANDARD": "20",
+        "PYRABIND_BUILD_PYTHON": "OFF",
+        "PYRABIND_BUILD_R": "OFF",
+        "PYRABIND_BUILD_EXAMPLES": "OFF",
+        "PYRABIND_BUILD_BENCHMARKS": "OFF",
+        "PYRABIND_ENABLE_SANITIZERS": "ON"
+      }
     }
   ]
 }

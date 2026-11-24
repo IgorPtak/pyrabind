@@ -119,3 +119,87 @@ jobs:
 
       - name: Build documentation strictly
         run: mkdocs build --strict
+
+  asan-ubsan:
+    name: asan-ubsan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      - name: Configure ASan + UBSan
+        run: cmake --preset asan-ubsan
+
+      - name: Build ASan + UBSan
+        run: cmake --build build-asan -j
+
+      - name: Run CTest under ASan + UBSan
+        run: ctest --test-dir build-asan --output-on-failure
+
+  windows-python-msvc:
+    name: windows-python-msvc
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Ninja
+        run: choco install ninja --no-progress
+
+      - name: Set up Python 3.12
+        id: setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python build and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install nanobind numpy pandas
+
+      - name: Configure CMake (MSVC Python)
+        run: cmake -S . -B build-ci -G Ninja -DCMAKE_BUILD_TYPE=Release -DPYRABIND_BUILD_R=OFF "-DPython_EXECUTABLE=${{ steps.setup-python.outputs.python-path }}"
+
+      - name: Build
+        run: cmake --build build-ci -j
+
+      - name: Run CTest
+        run: ctest --test-dir build-ci --output-on-failure
+
+  windows-r-rtools:
+    name: windows-r-rtools
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+
+      - name: Set up Rtools
+        uses: r-lib/actions/setup-r-tools@v1
+
+      - name: Install Ninja
+        run: choco install ninja --no-progress
+
+      - name: Install cpp11 R package
+        run: Rscript -e "install.packages('cpp11', repos = 'https://cloud.r-project.org')"
+
+      - name: Configure CMake (Rtools MinGW R)
+        env:
+          CC: gcc
+          CXX: g++
+        run: cmake -S . -B build-ci -G Ninja -DCMAKE_BUILD_TYPE=Release -DPYRABIND_BUILD_PYTHON=OFF
+
+      - name: Build
+        run: cmake --build build-ci -j
+
+      - name: Run CTest
+        run: ctest --test-dir build-ci --output-on-failure

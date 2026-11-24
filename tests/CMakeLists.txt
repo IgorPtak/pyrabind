@@ -23,4 +23,9 @@ if(PYRABIND_BUILD_R)
         COMMAND "${RSCRIPT_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/r/test_pyrabind.R"
                 "${CMAKE_SOURCE_DIR}/r/pyrabind.R" "$<TARGET_FILE:test_module_r>"
     )
+    add_test(
+        NAME r_gctorture_tests
+        COMMAND "${RSCRIPT_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/r/test_gctorture.R"
+                "${CMAKE_SOURCE_DIR}/r/pyrabind.R" "$<TARGET_FILE:test_module_r>"
+    )
 endif()

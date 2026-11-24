@@ -73,10 +73,12 @@ jobs:
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: release
+          use-public-rspm: true
 
       - name: Install cpp11, nanoarrow, and testthat R packages
         if: matrix.build_r == 'ON'
-        run: Rscript -e "install.packages(c('cpp11', 'nanoarrow', 'testthat'), repos = 'https://cloud.r-project.org')"
+        run: |
+          Rscript -e "r <- getOption('repos'); if (is.null(r) || is.na(r[1]) || identical(unname(r[1]), '@CRAN@')) r <- c(CRAN = 'https://cloud.r-project.org'); install.packages(c('cpp11', 'nanoarrow', 'testthat'), repos = r); ok <- vapply(c('cpp11', 'nanoarrow', 'testthat'), requireNamespace, logical(1), quietly = TRUE); if (!all(ok)) stop('Failed to install R packages: ', paste(names(ok)[!ok], collapse = ', '))"
 
       - name: Configure CMake (Release)
         run: |
@@ -102,7 +104,7 @@ jobs:
         run: |
           mkdir -p "${{ runner.temp }}/pyra_stats_rlib"
           R CMD INSTALL --no-multiarch -l "${{ runner.temp }}/pyra_stats_rlib" examples/pyra_stats/rpkg
-          R_LIBS="${{ runner.temp }}/pyra_stats_rlib" Rscript -e "library(pyrastats); testthat::test_dir('examples/pyra_stats/rpkg/tests/testthat', stop_on_failure = TRUE)"
+          Rscript -e ".libPaths(c('${{ runner.temp }}/pyra_stats_rlib', .libPaths())); library(pyrastats); testthat::test_dir('examples/pyra_stats/rpkg/tests/testthat', stop_on_failure = TRUE)"
           rm -f examples/pyra_stats/rpkg/src/*.o examples/pyra_stats/rpkg/src/*.so
 
       - name: Verify CMake install

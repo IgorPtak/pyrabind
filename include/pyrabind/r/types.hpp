@@ -162,7 +162,7 @@ template <typename T> inline handle type() noexcept {
 
 struct gil_scoped_acquire {
     gil_scoped_acquire() noexcept = default;
-    ~gil_scoped_acquire() = default;
+    ~gil_scoped_acquire() noexcept {}
     gil_scoped_acquire(const gil_scoped_acquire&) = delete;
     gil_scoped_acquire& operator=(const gil_scoped_acquire&) = delete;
     gil_scoped_acquire(gil_scoped_acquire&&) = delete;
@@ -174,7 +174,7 @@ struct gil_scoped_acquire {
 
 struct gil_scoped_release {
     gil_scoped_release() noexcept = default;
-    ~gil_scoped_release() = default;
+    ~gil_scoped_release() noexcept {}
     gil_scoped_release(const gil_scoped_release&) = delete;
     gil_scoped_release& operator=(const gil_scoped_release&) = delete;
     gil_scoped_release(gil_scoped_release&&) = delete;

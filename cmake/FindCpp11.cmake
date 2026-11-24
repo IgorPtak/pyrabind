@@ -9,6 +9,9 @@ if(NOT DEFINED CPP11_INCLUDE_DIR)
             OUTPUT_STRIP_TRAILING_WHITESPACE
             ERROR_QUIET
         )
+        if(_cpp11_r_inc)
+            file(TO_CMAKE_PATH "${_cpp11_r_inc}" _cpp11_r_inc)
+        endif()
         if(_cpp11_r_inc AND EXISTS "${_cpp11_r_inc}/cpp11.hpp")
             set(CPP11_INCLUDE_DIR "${_cpp11_r_inc}" CACHE PATH "Path to cpp11 headers")
         endif()

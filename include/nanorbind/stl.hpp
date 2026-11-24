@@ -1,0 +1,16 @@
+#pragma once
+
+#include "nanorbind/stl/array.hpp"
+#include "nanorbind/stl/filesystem.hpp"
+#include "nanorbind/stl/function.hpp"
+#include "nanorbind/stl/map.hpp"
+#include "nanorbind/stl/optional.hpp"
+#include "nanorbind/stl/pair.hpp"
+#include "nanorbind/stl/set.hpp"
+#include "nanorbind/stl/string.hpp"
+#include "nanorbind/stl/string_view.hpp"
+#include "nanorbind/stl/tuple.hpp"
+#include "nanorbind/stl/unordered_map.hpp"
+#include "nanorbind/stl/unordered_set.hpp"
+#include "nanorbind/stl/variant.hpp"
+#include "nanorbind/stl/vector.hpp"

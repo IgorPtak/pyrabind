@@ -1,5 +1,8 @@
 site_name: pyrabind
 site_description: Write one C++20 nanobind-style binding module and compile natively for Python 3 and R 4.
+site_url: https://igorptak.github.io/pyrabind/
+repo_url: https://github.com/IgorPtak/pyrabind
+repo_name: IgorPtak/pyrabind
 docs_dir: docs
 theme:
   name: material

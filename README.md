@@ -5,8 +5,15 @@
 <h1 align="center">pyrabind</h1>
 
 <p align="center">
+  <a href="https://github.com/IgorPtak/pyrabind/actions/workflows/ci.yml"><img src="https://github.com/IgorPtak/pyrabind/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://igorptak.github.io/pyrabind/"><img src="https://github.com/IgorPtak/pyrabind/actions/workflows/docs.yml/badge.svg" alt="Docs"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-BSD_3--Clause-blue.svg" alt="License: BSD-3-Clause"></a>
+</p>
+
+<p align="center">
   Write one <strong>C++20</strong> <code>nanobind</code>-style binding module — compile simultaneously for <strong>Python 3</strong> and <strong>R 4</strong>.<br>
-  <em>Named after <strong>pyra</strong>, the Poznan dialect word for potato — plus <strong>Py</strong>thon + <strong>R</strong> + <strong>bind</strong>.</em>
+  <em>Named after <strong>pyra</strong>, the Poznan dialect word for potato — plus <strong>Py</strong>thon + <strong>R</strong> + <strong>bind</strong>.</em><br>
+  <a href="https://igorptak.github.io/pyrabind/">Documentation Site</a>
 </p>
 
 `pyrabind` is a **C++20** dual-target binding library that lets you write **one binding definition** in authentic **`nanobind`** syntax (with zero target `#ifdef`s) and compile it simultaneously into:

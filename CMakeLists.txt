@@ -61,6 +61,9 @@ if(PYRABIND_BUILD_PYTHON)
     endif()
 
     list(APPEND _pyrabind_export_targets pyrabind_python)
+    if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+        set(Python_INCLUDE_DIRS "${Python_INCLUDE_DIRS}" PARENT_SCOPE)
+    endif()
 endif()
 
 if(PYRABIND_BUILD_R)
@@ -148,6 +151,7 @@ endif()
 
 if(PYRABIND_BUILD_EXAMPLES)
     add_subdirectory(examples/geometry)
+    add_subdirectory(examples/pyra_stats)
 endif()
 
 if(PYRABIND_BUILD_TESTS)

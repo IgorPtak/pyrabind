@@ -1,0 +1,2 @@
+CXX_STD = CXX20
+PKG_CPPFLAGS = -DPYRABIND_TARGET_R -DR_NO_REMAP -DSTRICT_R_HEADERS -I../../../../include -I../../../../src/r

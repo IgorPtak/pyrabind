@@ -204,7 +204,7 @@
 
 pyrabind_load <- function(path) {
     .pyrabind_register_s3()
-    dll <- dyn.load(path)
+    dll <- if (inherits(path, "DLLInfo")) path else dyn.load(path)
 
     sym <- function(name) {
         getNativeSymbolInfo(name, dll)

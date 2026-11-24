@@ -1,0 +1,19 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "pyra_stats"
+version = "0.1.0"
+description = "Dual-target Python and R statistical extension powered by pyrabind"
+requires-python = ">=3.9"
+dependencies = ["numpy"]
+
+[tool.scikit-build]
+wheel.packages = ["python/pyra_stats"]
+cmake.args = [
+  "-DPYRABIND_BUILD_R=OFF",
+  "-DPYRABIND_BUILD_TESTS=OFF",
+  "-DPYRABIND_BUILD_EXAMPLES=OFF",
+  "-DPYRABIND_BUILD_BENCHMARKS=OFF",
+]

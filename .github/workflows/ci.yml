@@ -66,7 +66,7 @@ jobs:
       - name: Install Python build and test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install nanobind numpy pandas pyarrow
+          pip install nanobind numpy pandas pyarrow scikit-build-core
 
       - name: Set up R
         if: matrix.build_r == 'ON'
@@ -74,9 +74,9 @@ jobs:
         with:
           r-version: release
 
-      - name: Install cpp11 and nanoarrow R packages
+      - name: Install cpp11, nanoarrow, and testthat R packages
         if: matrix.build_r == 'ON'
-        run: Rscript -e "install.packages(c('cpp11', 'nanoarrow'), repos = 'https://cloud.r-project.org')"
+        run: Rscript -e "install.packages(c('cpp11', 'nanoarrow', 'testthat'), repos = 'https://cloud.r-project.org')"
 
       - name: Configure CMake (Release)
         run: |
@@ -91,15 +91,33 @@ jobs:
       - name: Run CTest
         run: ctest --test-dir build-ci --output-on-failure
 
+      - name: Test pyra_stats Python wheel install
+        run: |
+          mkdir -p "${{ runner.temp }}/pyra_stats_pylib"
+          python -m pip install --no-build-isolation --no-deps --target "${{ runner.temp }}/pyra_stats_pylib" ./examples/pyra_stats
+          PYTHONPATH="${{ runner.temp }}/pyra_stats_pylib" python -m unittest discover -s examples/pyra_stats/tests -v
+
+      - name: Test pyrastats R CMD INSTALL
+        if: matrix.build_r == 'ON'
+        run: |
+          mkdir -p "${{ runner.temp }}/pyra_stats_rlib"
+          R CMD INSTALL --no-multiarch -l "${{ runner.temp }}/pyra_stats_rlib" examples/pyra_stats/rpkg
+          R_LIBS="${{ runner.temp }}/pyra_stats_rlib" Rscript -e "library(pyrastats); testthat::test_dir('examples/pyra_stats/rpkg/tests/testthat', stop_on_failure = TRUE)"
+          rm -f examples/pyra_stats/rpkg/src/*.o examples/pyra_stats/rpkg/src/*.so
+
       - name: Verify CMake install
         if: matrix.install_check
         run: |
           cmake --install build-ci --prefix /tmp/pyrabind_install_check
           test -f /tmp/pyrabind_install_check/include/pyrabind/pyrabind.hpp
+          test -f /tmp/pyrabind_install_check/include/pyrabind/eigen.hpp
+          test -f /tmp/pyrabind_install_check/include/pyrabind/arrow.hpp
+          test -f /tmp/pyrabind_install_check/include/pyrabind/arrow_abi.hpp
           test -f /tmp/pyrabind_install_check/include/pyrabind/make_iterator.hpp
           test -f /tmp/pyrabind_install_check/include/pyrabind/stl/bind_vector.hpp
           test -f /tmp/pyrabind_install_check/include/pyrabind/stl/bind_map.hpp
           test -f /tmp/pyrabind_install_check/share/pyrabind/pyrabind.R
+          test -f /tmp/pyrabind_install_check/share/pyrabind/pyrabind_stubgen.py
 
   docs-build:
     name: mkdocs-strict

@@ -1,0 +1,10 @@
+Package: pyrastats
+Title: Statistical Kernels Built with pyrabind
+Version: 0.1.0
+Authors@R: person("Igor", "Ptak", role = c("aut", "cre"), email = "igor@example.com")
+Description: Statistical kernels (Ridge regression, robust summaries, pairwise Euclidean distances, nullable dataframe standardization, and Arrow export) built from a single C++20 pyrabind source file.
+License: BSD_3_clause + file LICENSE
+Encoding: UTF-8
+LinkingTo: cpp11
+SystemRequirements: C++20
+Suggests: testthat (>= 3.0.0)

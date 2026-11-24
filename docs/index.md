@@ -10,10 +10,10 @@ Welcome to the **`pyrabind`** documentation (*named after **pyra**, the Poznan d
 
 ## Guide Map
 
-1. **[Getting Started & Build Guide](getting-started.md)** — dependencies, CMake presets and options, `pyrabind_add_module`, installing and consuming via `find_package(pyrabind)`, running `examples/geometry`, and building the MkDocs site locally.
-2. **[API Reference](api-reference.md)** — modules, submodules, free functions, keyword arguments, `kw_only`, `call_guard`, overload resolution, classes, single inheritance, constructors/factories, instance and static properties, iterators, `bind_vector`/`bind_map`, special methods, operators, enums, ownership (`rv_policy`, `keep_alive`, `capsule`), and built-in/custom `exception<T>` types.
+1. **[Getting Started & Build Guide](getting-started.md)** — dependencies (including Eigen, pyarrow/nanoarrow, Windows MSVC/Rtools), CMake presets (`release`, `default`, `asan-ubsan`), `pyrabind_add_module`, installing and consuming via `find_package(pyrabind)`, `tools/pyrabind_stubgen.py`, dual Python/R packaging (`examples/pyra_stats`), and MkDocs preview.
+2. **[API Reference](api-reference.md)** — modules, submodules, free functions, keyword arguments, `kw_only`, `call_guard`, overload resolution, classes, single inheritance, constructors/factories, instance and static properties, iterators, `bind_vector`/`bind_map`, special methods, operators, enums, ownership (`rv_policy`, `keep_alive`, `capsule`), built-in/custom `exception<T>` types, and `tools/pyrabind_stubgen.py`.
 3. **[Type Conversions & Python/R Semantics](type-conversions.md)** — scalars, UTF-8 strings, all 21 `pyrabind/stl/*.hpp` headers (19 via `stl.hpp` plus opt-in `bind_vector.hpp` and `bind_map.hpp`, smart pointers, `complex`, `chrono`, `list`), bidirectional callbacks (`std::function`), and practical behavioral differences between Python and R callers.
-4. **[NumPy, `ndarray`, Matrices & `data_frame`](ndarray-and-dataframes.md)** — zero-copy strided array views, row-major vs. column-major matrices, allocating output arrays with `nb::capsule`, ALTREP considerations, and `nb::data_frame` (`pandas.DataFrame` / `dict` and base R `data.frame` / `tibble`).
+4. **[NumPy, `ndarray`, Eigen, Arrow & `data_frame`](ndarray-and-dataframes.md)** — zero-copy strided `ndarray` views, Eigen dense/`Map`/`Ref` (`pyrabind/eigen.hpp`), nullable `nb::data_frame` (`validity` masks), zero-copy Arrow C Data Interface (`pyrabind/arrow.hpp`), ALTREP considerations, and ownership transfer via `nb::capsule`.
 5. **[Architecture Deep Dive](architecture.md)** — how `pyrabind` achieves zero Python overhead alongside fast, unwind-safe `.External` R dispatch.
 6. **[Overhead & Data-Science Benchmarks](benchmarks.md)** — measured Release `-O3` latency across C++, Python (`pyrabind`, raw `nanobind`, raw CPython C-API, NumPy/pandas), and R (`pyrabind`, raw `.Call`, base R).
 
@@ -42,4 +42,8 @@ Welcome to the **`pyrabind`** documentation (*named after **pyra**, the Poznan d
 | Smart pointers (`std::shared_ptr`, `std::unique_ptr`) | Yes | Yes | `unique_ptr` consumption marks moved-from wrapper invalid |
 | STL containers, `std::complex`, `std::chrono`, `std::list` | `<nanobind/stl/*.h>` | All 21 headers | Maps use `std::string` keys in R; `chrono` -> `difftime`/`POSIXct`; `complex` -> `CPLXSXP` |
 | Zero-copy `nb::ndarray` views & `capsule` returns | NumPy / buffer / DLPack | R vectors, matrices, arrays (`dim`) | Row-major C++ 2D outputs auto-transpose to column-major R |
-| `nb::data_frame` | `pandas.DataFrame` & `dict` | `data.frame` & `tibble` | `float64`, `int64`, `int32`, `bool`, `std::string` columns |
+| Eigen dense matrices & zero-copy `Map`/`Ref` (`pyrabind/eigen.hpp`) | `<nanobind/eigen/dense.h>` | `pyrabind/r/eigen.hpp` (`DRef`/`DMap`/`DStride`/`DRef1`/`DMap1`/`DStride1`) | Optional compile-time dependency when `Eigen3` is present |
+| Nullable `nb::data_frame` | `pandas.DataFrame` & `dict` | `data.frame` & `tibble` | `float64`, `int64`, `int32`, `bool`, `std::string` + `validity` masks (`NA`/`None`/`NaN`/`pd.NA`) |
+| Arrow C Data Interface (`pyrabind/arrow.hpp`) | `__arrow_c_array__` PyCapsule (`pyarrow`) | `nanoarrow_array` / `nanoarrow_schema` externalptr | Move-only `pyrabind::arrow_batch`, `export_to_arrow`, `import_from_arrow` |
+| Stub & R wrapper generator (`tools/pyrabind_stubgen.py`) | PEP 484 `.pyi` stubs (`--verify`) | `roxygen2`-annotated R wrappers | Inspects compiled Python modules cleanly |
+| Dual Python/R packaging (`examples/pyra_stats`) | `scikit-build-core` wheel (`pip install`) | Native `R CMD INSTALL` package (`pyrastats`) | Shared C++20 `PYRABIND_MODULE` source + `testthat` & `unittest` |

@@ -1,9 +1,11 @@
-# NumPy, `ndarray`, Matrices & `data_frame`
+# NumPy, `ndarray`, Eigen, Arrow & `data_frame`
 
-`pyrabind` provides two complementary high-throughput interfaces for numerical computing and tabular workflows:
+`pyrabind` provides high-throughput interfaces for numerical computing, linear algebra, and columnar data workflows:
 
 - **`pyrabind/ndarray.hpp`** (`include/pyrabind/ndarray.hpp`): Zero-copy strided views (`nb::ndarray<...>`) over NumPy arrays and R vectors/matrices, plus ownership-transferred return arrays via `nb::capsule`.
-- **`pyrabind/dataframe.hpp`** (`include/pyrabind/dataframe.hpp`): Typed columnar tables (`nb::data_frame`) converting between `pandas.DataFrame` / Python `dict` and R `data.frame` / `tibble`.
+- **`pyrabind/eigen.hpp`** (`include/pyrabind/eigen.hpp`): Dense matrices, vectors, arrays, and zero-copy `Eigen::Map` / `Eigen::Ref` views (`DRef`, `DMap`, `DStride`, `DRef1`, `DMap1`, `DStride1`).
+- **`pyrabind/dataframe.hpp`** (`include/pyrabind/dataframe.hpp`): Nullable typed columnar tables (`nb::data_frame`) converting between `pandas.DataFrame` / Python `dict` and R `data.frame` / `tibble`.
+- **`pyrabind/arrow.hpp`** (`include/pyrabind/arrow.hpp`): Zero-copy Arrow C Data Interface bridges (`pyrabind::arrow_batch`, `export_to_arrow`, `import_from_arrow`) with PyCapsule (`pyarrow`) and `nanoarrow` integration.
 
 ---
 
@@ -121,6 +123,9 @@ using column_data = std::variant<
 struct data_frame {
     std::vector<std::string> names;
     std::vector<column_data> columns;
+    // Optional per-column validity masks aligned with `columns`:
+    // empty inner vector = all rows valid; otherwise 1 = valid, 0 = null/NA.
+    std::vector<std::vector<std::uint8_t>> validity;
 
     std::size_t ncols() const noexcept;
     std::size_t nrows() const noexcept;
@@ -129,21 +134,62 @@ struct data_frame {
     std::size_t index_of(std::string_view name) const;
     column_data& operator[](std::string_view name);
     const column_data& operator[](std::string_view name) const;
-    void add_column(std::string name, column_data col);
+    bool has_nulls(std::size_t col_idx) const noexcept;
+    bool any_nulls() const noexcept;
+    bool is_null(std::size_t col_idx, std::size_t row_idx) const noexcept;
+    void set_null(std::size_t col_idx, std::size_t row_idx, bool null_val = true);
+    void add_column(std::string name, column_data col, std::vector<std::uint8_t> val_mask = {});
 };
 ```
 
-`add_column` validates unique column names and consistent row counts (throwing `std::invalid_argument` on duplicates or length mismatches).
+`add_column` validates unique column names, consistent row counts, and optional `val_mask` lengths (throwing `std::invalid_argument` on duplicates or length mismatches). Existing callers that ignore `validity` incur no extra allocation (all-valid columns keep an empty mask).
 
-### Host Conversions
+### Host Conversions & Nullability
 
 - **Python (`include/pyrabind/python/dataframe.hpp`)**:
-  - **Input**: Accepts `pandas.DataFrame` (or any mapping exposing `.columns`) as well as plain `dict[str, sequence_or_array]`. Numeric buffer columns (`float64`, `float32` widened to `double`, `int64`, `int32`, `bool`) copy cleanly via C-API buffer/sequence fast paths; `pandas` 3.x `'O'` string arrays convert directly without intermediate Python iteration.
-  - **Output**: Constructs a `pandas.DataFrame` when `pandas` is importable (populating numeric columns as `numpy.ndarray` when `numpy` is present), or gracefully falls back to a Python `dict` if `pandas` is unavailable.
+  - **Input**: Accepts `pandas.DataFrame` (or any mapping exposing `.columns`) as well as plain `dict[str, sequence_or_array]`. Missing values (`NaN`, `None`, `pd.NA`) populate per-column `validity` masks (`0 = null`), while `float32` buffers widen cleanly to `double` and `pandas` 3.x `'O'` string arrays convert directly.
+  - **Output**: Constructs a `pandas.DataFrame` when `pandas` is importable (emitting `NaN`, nullable integer/boolean `pd.array(..., dtype="Int64"/"boolean")` or object `None` when nulls are present), or gracefully falls back to a Python `dict` if `pandas` is unavailable.
 - **R (`src/r/conversions.cpp`)**:
-  - **Input**: Accepts R `data.frame` and `tibble` objects in Pass 1 (`convert = false`) and named lists of equal-length column vectors (`VECSXP` with `names`) in Pass 2 (`convert = true`). Supports `REALSXP`, `INTSXP`, `LGLSXP`, and `STRSXP` columns (rejecting `NA_STRING`).
-  - **Output**: Returns a native base R `data.frame` with compact `c(NA_integer_, -nrows)` row names — usable immediately with `dplyr`, `ggplot2`, or base R subsetting.
+  - **Input**: Accepts R `data.frame` and `tibble` objects in Pass 1 (`convert = false`) and named lists of equal-length column vectors (`VECSXP` with `names`) in Pass 2 (`convert = true`). Supports `REALSXP`, `INTSXP`, `LGLSXP`, and `STRSXP`, translating `NA_real_` / `NaN`, `NA_integer_`, `NA_LOGICAL`, and `NA_STRING` into `validity` masks (`0 = null`).
+  - **Output**: Returns a native base R `data.frame` with compact `c(NA_integer_, -nrows)` row names and preserves `NA` entries (`NA_real_`, `NA_integer_`, `NA_LOGICAL`, `NA_STRING`) wherever `validity[c][r] == 0`.
 
 ### Performance Guidance
 
 `nb::data_frame` eagerly materializes all columns across the C++/host boundary (including `std::string` allocations per string element), taking **3.539 ms** in Python and **1.970 ms** in R on 100k rows (`id`, `x`, `y`, `tag`). When only numeric columns are needed in a hot loop, extract columns in host code and pass individual `nb::ndarray<const T, nb::ndim<1>>` parameters instead for sub-100 us latency.
+
+---
+
+## 3. Eigen Dense Matrices & Zero-Copy `Map`/`Ref`
+
+Include `#include "pyrabind/eigen.hpp"` to exchange Eigen matrices, vectors, arrays, and strided views across both backends:
+
+- **Python**: Forwards directly to `<nanobind/eigen/dense.h>`.
+- **R (`include/pyrabind/r/eigen.hpp`)**: Supports owning `Eigen::Matrix<...>` / `Eigen::Array<...>` values, zero-copy `Eigen::Map<...>` inputs (const contiguous or strided), mutable `Eigen::Ref<MatrixT>` / `DRef<MatrixT>` in-place updates on non-`ALTREP` R matrices/vectors, and convenient dynamic stride aliases (`pyrabind::DStride`, `DRef`, `DMap`, `DStride1`, `DRef1`, `DMap1`).
+
+```cpp
+#include "pyrabind/eigen.hpp"
+
+void add_scaled_inplace(nb::DRef<Eigen::MatrixXd> mat, double scale) {
+    mat.array() += scale;
+}
+
+Eigen::VectorXd matvec(const nb::DRef<const Eigen::MatrixXd>& a,
+                       const nb::DRef<const Eigen::VectorXd>& x) {
+    return a * x;
+}
+```
+
+Use dynamic-stride aliases (`nb::DRef<Eigen::MatrixXd>` / `nb::DRef<const Eigen::MatrixXd>`) in dual-target signatures so both row-major NumPy arrays (`c_contig`) and column-major R matrices (`f_contig`) bind zero-copy without forcing a transpose. Returning owning `Eigen::MatrixXd` or `Eigen::VectorXd` automatically converts to NumPy arrays on Python and native column-major `matrix`/vectors on R.
+
+---
+
+## 4. Zero-Copy Arrow C Data Interface (`pyrabind/arrow.hpp`)
+
+Include `#include "pyrabind/arrow.hpp"` (which bundles self-contained Arrow C Data definitions in `pyrabind/arrow_abi.hpp`) to pass columnar struct batches cleanly between C++, `pyarrow`, and R `nanoarrow`:
+
+- **`pyrabind::arrow_batch`**: Move-only RAII wrapper managing paired `ArrowSchema` and `ArrowArray` structs (`is_valid()`, `release()`).
+- **`export_to_arrow(data_frame)`**: Builds a zero-copy struct (`"+s"`) `arrow_batch` with Arrow validity bitmaps and UTF-8 offset/byte buffers kept alive via shared ownership. Supports `double` (`"g"`), `int64` (`"l"`), `int32` (`"i"`), `bool` (`"b"`), and `std::string` (`"u"`).
+- **`import_from_arrow(const arrow_batch&)`**: Reads struct (`"+s"`) batches back into `pyrabind::data_frame` (`"g"`, `"f"`, `"l"`, `"i"`, `"b"`, `"u"`, `"U"` plus validity bitmaps).
+- **Host interop**:
+  - **Python**: Accepts any object exposing `__arrow_c_array__` (such as `pyarrow.RecordBatch`) and returns a capsule holder implementing the Arrow PyCapsule Protocol (`__arrow_c_array__`) consumable directly by `pyarrow.record_batch(...)`.
+  - **R**: Accepts `nanoarrow_array` external pointers (reading the paired `nanoarrow_schema` stored in `R_ExternalPtrTag` or `"schema"` attribute) and returns an R `nanoarrow_array` external pointer with its `nanoarrow_schema` attached on `R_ExternalPtrTag`.

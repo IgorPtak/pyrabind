@@ -8,13 +8,17 @@ This guide covers toolchain requirements, CMake presets and options, building ex
 
 | Dependency | Version Tested | Required For | Notes |
 | :--- | :--- | :--- | :--- |
-| **C++ compiler** | AppleClang 21 / GCC / Clang / MSVC | All targets | Must support **C++20** (`-std=c++20`) |
+| **C++ compiler** | AppleClang 21 / GCC / Clang / MSVC / Rtools MinGW | All targets | Must support **C++20** (`-std=c++20` or `/std:c++20`) |
 | **CMake** | `>= 3.20` | All targets | `Ninja` recommended (used by `CMakePresets.json`) |
 | **Python 3** | `3.12.8` | Python backend (`PYRABIND_BUILD_PYTHON=ON`) | Interpreter + development module headers |
 | **`nanobind`** (Python package) | `3.1.0` | Python backend (`PYRABIND_BUILD_PYTHON=ON`) | Discovered via `python3 -m nanobind --cmake_dir` |
 | **NumPy** & **pandas** (optional) | `2.4.4` / `3.0.2` | Python tests, benchmarks & DataFrames | Without pandas, `pyrabind::data_frame` falls back to `dict` |
-| **R** | `4.5.3` | R backend (`PYRABIND_BUILD_R=ON`) | `Rscript`, R headers, `libR`, base R only at runtime |
+| **Eigen 3+** (optional) | `3.4+` / `5.0.1` | `pyrabind/eigen.hpp` & Eigen CTest targets | CMake checks `find_package(Eigen3 QUIET)` for tests |
+| **`pyarrow` / `nanoarrow`** (optional) | `26.0.1` / `0.9.0` | Zero-copy Arrow C Data Interface interop tests | `pyrabind/arrow.hpp` itself uses only standard C++20 + `arrow_abi.hpp` |
+| **`scikit-build-core`** (optional) | `1.1.2` | Building `examples/pyra_stats` Python wheels (`pip install`) | PEP 517 CMake backend configured in `examples/pyra_stats/pyproject.toml` |
+| **R** | `4.5.3` | R backend (`PYRABIND_BUILD_R=ON`) | `Rscript`, R headers, `libR` / Windows `R.dll` (`Rtools` on Windows), base R only at runtime |
 | **`cpp11`** (R package) | `0.5.2` | R backend (`PYRABIND_BUILD_R=ON`) | Header-only compile-time dependency; discovered via `FindCpp11.cmake` |
+| **`testthat`** (R package, optional) | `3.3.2` | Running native R package test suites | Used by `examples/pyra_stats/rpkg/tests/testthat` |
 
 > [!NOTE]
 > `r/pyrabind.R` and compiled R modules use **pure base R** at runtime — end users loading your compiled R extension do not need `cpp11` installed unless they recompile from C++ source.
@@ -25,7 +29,7 @@ This guide covers toolchain requirements, CMake presets and options, building ex
 
 ### Using CMake Presets
 
-Two Ninja presets are configured in `CMakePresets.json`:
+Three Ninja presets are configured in `CMakePresets.json`:
 
 ```bash
 # Release build (-O3 -DNDEBUG)
@@ -37,7 +41,14 @@ ctest --test-dir build-release --output-on-failure
 cmake --preset default
 cmake --build build -j
 ctest --test-dir build --output-on-failure
+
+# Address + UndefinedBehavior Sanitizer build (C++ core tests, non-MSVC)
+cmake --preset asan-ubsan
+cmake --build build-asan -j
+ctest --test-dir build-asan --output-on-failure
 ```
+
+GitHub Actions CI additionally validates `windows-python-msvc` (Python backend under MSVC) and `windows-r-rtools` (R backend under Rtools MinGW `gcc`/`g++` linking `R.dll`), alongside `r_gctorture_tests` (`gctorture(TRUE)` stress coverage in `tests/r/test_gctorture.R`).
 
 ### Selecting Custom Python or `cpp11` Locations
 
@@ -59,9 +70,10 @@ cmake --build build-release -j
 | :--- | :--- | :--- |
 | `PYRABIND_BUILD_PYTHON` | `ON` | Enables Python target discovery (`nanobind`), `pyrabind::python`, and Python modules |
 | `PYRABIND_BUILD_R` | `ON` | Enables R & `cpp11` discovery, `pyrabind_r_runtime`, `pyrabind::r`, and R modules |
-| `PYRABIND_BUILD_TESTS` | `ON` | Builds and registers C++, Python, R, and `geometry` CTest targets |
-| `PYRABIND_BUILD_EXAMPLES` | `ON` | Builds `examples/geometry` for enabled backends |
+| `PYRABIND_BUILD_TESTS` | `ON` | Builds and registers C++, Python, R, `gctorture`, Eigen, and `stubgen` CTest targets |
+| `PYRABIND_BUILD_EXAMPLES` | `ON` | Builds `examples/geometry` and `examples/pyra_stats` for enabled backends |
 | `PYRABIND_BUILD_BENCHMARKS` | `ON` | Builds C++, `pyrabind`, raw `nanobind`, raw Python C-API, and raw R benchmarks |
+| `PYRABIND_ENABLE_SANITIZERS` | `OFF` | Enables `-fsanitize=address,undefined` on non-MSVC targets (`asan-ubsan` preset) |
 
 Either backend can be disabled cleanly — for example, `-DPYRABIND_BUILD_R=OFF` builds Python-only without requiring R or `cpp11`.
 
@@ -79,11 +91,13 @@ Installed layout:
 
 ```text
 <prefix>/
-├── include/pyrabind/           # Public & backend C++20 headers
+├── include/pyrabind/           # Public & backend C++20 headers (incl. eigen.hpp, arrow.hpp)
 ├── lib/
 │   ├── libpyrabind_r_runtime.a # R runtime static archive (when PYRABIND_BUILD_R=ON)
 │   └── cmake/pyrabind/         # pyrabindConfig.cmake, pyrabindTargets.cmake, PyrabindTargets.cmake, FindR.cmake, FindCpp11.cmake
-└── share/pyrabind/pyrabind.R   # Base-R module loader & S3 dispatch script
+└── share/pyrabind/
+    ├── pyrabind.R              # Base-R module loader & S3 dispatch script
+    └── pyrabind_stubgen.py     # PEP 484 (.pyi) & roxygen2 R wrapper generator
 ```
 
 ### Consume via `find_package(pyrabind)`
@@ -169,7 +183,42 @@ target_compile_definitions(my_core_tests PRIVATE PYRABIND_CORE_ONLY)
 
 ---
 
-## 6. Building & Previewing the Documentation Site (MkDocs)
+## 6. Generating Type Stubs (`.pyi`) and `roxygen2` R Wrappers
+
+Run `tools/pyrabind_stubgen.py` against any built Python extension module to generate typed `.pyi` stubs and optional `roxygen2`-documented R wrappers:
+
+```bash
+python3 tools/pyrabind_stubgen.py \
+  --module pyrastats \
+  --python-path build-release/examples/pyra_stats/python \
+  --pyi-out examples/pyra_stats/python/pyra_stats/pyrastats.pyi \
+  --r-out /tmp/pyrastats_wrappers.R \
+  --rscript "$(which Rscript)" \
+  --verify
+```
+
+---
+
+## 7. Packaging Dual Python Wheels & Native R Packages (`examples/pyra_stats`)
+
+The complete real-world packaging template in `examples/pyra_stats/` builds one shared C++20 source (`examples/pyra_stats/src/pyra_stats.cpp`) into both ecosystems:
+
+- **Python (`scikit-build-core`)**:
+  ```bash
+  pip install ./examples/pyra_stats
+  python3 -m unittest discover -s examples/pyra_stats/tests -v
+  ```
+- **R (`R CMD INSTALL` + `testthat`)**:
+  ```bash
+  R CMD INSTALL --no-multiarch examples/pyra_stats/rpkg
+  Rscript -e "library(pyrastats); testthat::test_dir('examples/pyra_stats/rpkg/tests/testthat', stop_on_failure = TRUE)"
+  ```
+
+On package load, `examples/pyra_stats/rpkg/R/zzz.R` passes the `DLLInfo` returned by `library.dynam(...)` directly to `pyrabind_load(...)`.
+
+---
+
+## 8. Building & Previewing the Documentation Site (MkDocs)
 
 `pyrabind` ships an **MkDocs Material** site configured in `mkdocs.yml`. To preview locally or run the strict documentation build check:
 

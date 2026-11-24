@@ -77,6 +77,7 @@ m.def("guarded_work", &work, "x"_a,
 
 - Any argument after `nb::kw_only()` must be passed by keyword (`kw_combine(1, b=2)` works; `kw_combine(1, 2)` fails overload matching on both Python and R).
 - `nb::call_guard<Guards...>()` constructs each guard on entry and destroys it on exit; `nb::gil_scoped_release` and `nb::gil_scoped_acquire` compile cleanly as zero-cost no-ops on the single-threaded R target while releasing/acquiring the GIL on Python.
+- If a function allocates and returns a new `nb::capsule` (e.g., owning an output `nb::ndarray`), do **not** attach `nb::call_guard<nb::gil_scoped_release>()` to the whole wrapper, because `nb::capsule` calls `PyCapsule_New` before the call guard destructor restores the GIL. Wrap only the pure C++ compute loop in a scoped `{ nb::gil_scoped_release nogil; ... }` block before constructing `nb::capsule`.
 
 ### Two-Pass Overload Resolution
 
@@ -349,3 +350,14 @@ PYRABIND_MODULE(mod, m) {
 
 - **Python**: Raises `mod.CustomDomainError` (subclass of `Exception`), catchable via `except mod.CustomDomainError:`.
 - **R**: Emits an S3 condition hierarchy starting with `CustomDomainError` (and `pyrabind_runtime_error` / `error` / `condition`), catchable directly via `tryCatch(..., CustomDomainError = function(e) ...)`.
+
+---
+
+## 8. Stub & R Wrapper Generation (`tools/pyrabind_stubgen.py`)
+
+`tools/pyrabind_stubgen.py` reflects over a compiled Python module (`nanobind` docstrings, classes, properties, enums, and functions) to emit:
+
+- **PEP 484 type stubs (`.pyi`)** for IDEs, `mypy`, and `pyright`, optionally AST-validated via `--verify`.
+- **`roxygen2`-documented R wrappers (`.R`)** exporting user-friendly top-level R functions delegating to the loaded `pyrabind` environment.
+
+See [Getting Started & Build Guide](getting-started.md) for CLI invocation examples.

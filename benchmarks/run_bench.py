@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Python overhead benchmarks: nanorbind vs raw nanobind vs raw C-API vs pure Python/NumPy/pandas."""
+"""Python overhead benchmarks: pyrabind vs raw nanobind vs raw C-API vs pure Python/NumPy/pandas."""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def main() -> int:
     if args.build_dir is not None:
         sys.path.insert(0, str(args.build_dir / "benchmarks" / "python"))
 
-    import bench_module as nr
+    import bench_module as pb
     import raw_nb_bench as raw_nb
     import raw_py_bench as raw_py
     import nanobind as nb_pkg
@@ -102,39 +102,39 @@ def main() -> int:
     }
     benches = results["benchmarks"]
 
-    assert nr.add_i64(17, 25) == 42
+    assert pb.add_i64(17, 25) == 42
     assert raw_nb.add_i64(17, 25) == 42
     assert raw_py.add_i64(17, 25) == 42
 
-    p_nr_1 = nr.BenchPoint(3.0, 4.0)
-    p_nr_2 = nr.BenchPoint(-1.5, 2.5)
+    p_pb_1 = pb.BenchPoint(3.0, 4.0)
+    p_pb_2 = pb.BenchPoint(-1.5, 2.5)
     p_nb_1 = raw_nb.BenchPoint(3.0, 4.0)
     p_nb_2 = raw_nb.BenchPoint(-1.5, 2.5)
     p_raw_1 = raw_py.BenchPoint(3.0, 4.0)
     p_raw_2 = raw_py.BenchPoint(-1.5, 2.5)
     p_py_1 = PurePoint(3.0, 4.0)
     p_py_2 = PurePoint(-1.5, 2.5)
-    assert math.isclose(p_nr_1.dot(p_nr_2), 5.5)
+    assert math.isclose(p_pb_1.dot(p_pb_2), 5.5)
     assert math.isclose(p_nb_1.dot(p_nb_2), 5.5)
     assert math.isclose(p_raw_1.dot(p_raw_2), 5.5)
     assert math.isclose(p_py_1.dot(p_py_2), 5.5)
 
     benches["noop"] = {
-        "nanorbind": measure(nr.noop),
+        "pyrabind": measure(pb.noop),
         "raw_nanobind": measure(raw_nb.noop),
         "raw_capi": measure(raw_py.noop),
         "pure_lang": measure(pure_noop),
     }
 
     benches["add_i64"] = {
-        "nanorbind": measure(lambda: nr.add_i64(17, 25)),
+        "pyrabind": measure(lambda: pb.add_i64(17, 25)),
         "raw_nanobind": measure(lambda: raw_nb.add_i64(17, 25)),
         "raw_capi": measure(lambda: raw_py.add_i64(17, 25)),
         "pure_lang": measure(lambda: pure_add_i64(17, 25)),
     }
 
     benches["point_dot"] = {
-        "nanorbind": measure(lambda: p_nr_1.dot(p_nr_2)),
+        "pyrabind": measure(lambda: p_pb_1.dot(p_pb_2)),
         "raw_nanobind": measure(lambda: p_nb_1.dot(p_nb_2)),
         "raw_capi": measure(lambda: p_raw_1.dot(p_raw_2)),
         "pure_lang": measure(lambda: p_py_1.dot(p_py_2)),
@@ -147,33 +147,33 @@ def main() -> int:
     b_list = b.tolist()
 
     expected_dot = float(np.dot(a, b))
-    assert math.isclose(nr.dot_view(a, b), expected_dot, rel_tol=1e-12)
+    assert math.isclose(pb.dot_view(a, b), expected_dot, rel_tol=1e-12)
     assert math.isclose(raw_nb.dot_view(a, b), expected_dot, rel_tol=1e-12)
     assert math.isclose(raw_py.dot_view(a, b), expected_dot, rel_tol=1e-12)
-    assert math.isclose(nr.dot_view(a[::2], b[::2]), float(np.dot(a[::2], b[::2])), rel_tol=1e-12)
-    assert math.isclose(nr.dot_vec(a_list, b_list), expected_dot, rel_tol=1e-12)
+    assert math.isclose(pb.dot_view(a[::2], b[::2]), float(np.dot(a[::2], b[::2])), rel_tol=1e-12)
+    assert math.isclose(pb.dot_vec(a_list, b_list), expected_dot, rel_tol=1e-12)
     assert math.isclose(raw_nb.dot_vec(a_list, b_list), expected_dot, rel_tol=1e-12)
 
     benches["dot_100k"] = {
-        "nanorbind_view": measure(lambda: nr.dot_view(a, b)),
+        "pyrabind_view": measure(lambda: pb.dot_view(a, b)),
         "raw_nanobind": measure(lambda: raw_nb.dot_view(a, b)),
-        "nanorbind_vec_copy": measure(lambda: nr.dot_vec(a_list, b_list), min_iters=5),
+        "pyrabind_vec_copy": measure(lambda: pb.dot_vec(a_list, b_list), min_iters=5),
         "raw_nb_vec_copy": measure(lambda: raw_nb.dot_vec(a_list, b_list), min_iters=5),
         "raw_capi": measure(lambda: raw_py.dot_view(a, b)),
         "pure_lang": measure(lambda: float(np.dot(a, b))),
     }
 
     expected_scale = a * 1.5 - 2.0
-    assert np.allclose(nr.scale_ndarray(a, 1.5, -2.0), expected_scale)
+    assert np.allclose(pb.scale_ndarray(a, 1.5, -2.0), expected_scale)
     assert np.allclose(raw_nb.scale_ndarray(a, 1.5, -2.0), expected_scale)
     assert np.allclose(raw_py.scale_ndarray(a, 1.5, -2.0), expected_scale)
-    assert np.allclose(nr.scale_vec(a_list, 1.5, -2.0), expected_scale)
+    assert np.allclose(pb.scale_vec(a_list, 1.5, -2.0), expected_scale)
     assert np.allclose(raw_nb.scale_vec(a_list, 1.5, -2.0), expected_scale)
 
     benches["scale_100k"] = {
-        "nanorbind_ndarray": measure(lambda: nr.scale_ndarray(a, 1.5, -2.0)),
+        "pyrabind_ndarray": measure(lambda: pb.scale_ndarray(a, 1.5, -2.0)),
         "raw_nanobind": measure(lambda: raw_nb.scale_ndarray(a, 1.5, -2.0)),
-        "nanorbind_vec_copy": measure(lambda: nr.scale_vec(a_list, 1.5, -2.0), min_iters=5),
+        "pyrabind_vec_copy": measure(lambda: pb.scale_vec(a_list, 1.5, -2.0), min_iters=5),
         "raw_nb_vec_copy": measure(lambda: raw_nb.scale_vec(a_list, 1.5, -2.0), min_iters=5),
         "raw_capi": measure(lambda: raw_py.scale_ndarray(a, 1.5, -2.0)),
         "pure_lang": measure(lambda: a * 1.5 - 2.0),
@@ -181,12 +181,12 @@ def main() -> int:
 
     mat = np.full((256, 256), 1.25, dtype=np.float64)
     expected_sum = 256.0 * 256.0 * 1.25
-    assert math.isclose(nr.mat_sum_view(mat), expected_sum)
+    assert math.isclose(pb.mat_sum_view(mat), expected_sum)
     assert math.isclose(raw_nb.mat_sum_view(mat), expected_sum)
     assert math.isclose(raw_py.mat_sum_view(mat), expected_sum)
 
     benches["mat_sum_256"] = {
-        "nanorbind_view": measure(lambda: nr.mat_sum_view(mat)),
+        "pyrabind_view": measure(lambda: pb.mat_sum_view(mat)),
         "raw_nanobind": measure(lambda: raw_nb.mat_sum_view(mat)),
         "raw_capi": measure(lambda: raw_py.mat_sum_view(mat)),
         "pure_lang": measure(lambda: float(mat.sum())),
@@ -200,14 +200,14 @@ def main() -> int:
             "tag": pd.Series(tags, dtype=object),
         }
     )
-    out_nr = nr.df_transform(df)
+    out_pb = pb.df_transform(df)
     out_nb = raw_nb.df_transform(df)
     out_raw = raw_py.df_transform(df)
-    assert list(out_nr.columns) == ["id", "x", "y", "tag"]
+    assert list(out_pb.columns) == ["id", "x", "y", "tag"]
     assert list(out_nb.columns) == ["id", "x", "y", "tag"]
-    assert len(out_nr) == n
-    assert np.allclose(out_nr["y"].to_numpy(), out_nb["y"].to_numpy())
-    assert np.allclose(out_nr["y"].to_numpy(), out_raw["y"].to_numpy())
+    assert len(out_pb) == n
+    assert np.allclose(out_pb["y"].to_numpy(), out_nb["y"].to_numpy())
+    assert np.allclose(out_pb["y"].to_numpy(), out_raw["y"].to_numpy())
 
     def pure_pandas_transform() -> Any:
         return pd.DataFrame(
@@ -220,7 +220,7 @@ def main() -> int:
         )
 
     benches["df_transform_100k"] = {
-        "nanorbind": measure(lambda: nr.df_transform(df), min_iters=2, max_iters=200),
+        "pyrabind": measure(lambda: pb.df_transform(df), min_iters=2, max_iters=200),
         "raw_nanobind": measure(lambda: raw_nb.df_transform(df), min_iters=2, max_iters=200),
         "raw_capi": measure(lambda: raw_py.df_transform(df), min_iters=2, max_iters=200),
         "pure_lang": measure(pure_pandas_transform, min_iters=2, max_iters=200),

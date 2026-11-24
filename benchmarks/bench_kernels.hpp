@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace nanorbind_bench {
+namespace pyrabind_bench {
 
 struct BenchPoint {
     double x = 0.0;
@@ -44,4 +44,4 @@ inline double sum_contiguous_kernel(const double* data, std::size_t n) noexcept 
     return acc;
 }
 
-} // namespace nanorbind_bench
+} // namespace pyrabind_bench

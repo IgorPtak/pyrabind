@@ -1,6 +1,6 @@
 args <- commandArgs(trailingOnly = TRUE)
 source(args[[1]])
-geo <- nanorbind_load(args[[2]])
+geo <- pyrabind_load(args[[2]])
 
 a <- geo$Vec2(1.0, 2.0)
 b <- geo$Vec2(4.0, 6.0)

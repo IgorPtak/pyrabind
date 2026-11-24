@@ -162,7 +162,7 @@ PyObject* raw_py_noop(PyObject*, PyObject* const*, Py_ssize_t nargs) {
         PyErr_SetString(PyExc_TypeError, "noop() takes 0 arguments");
         return nullptr;
     }
-    nanorbind_bench::noop_kernel();
+    pyrabind_bench::noop_kernel();
     Py_RETURN_NONE;
 }
 
@@ -179,7 +179,7 @@ PyObject* raw_py_add_i64(PyObject*, PyObject* const* args, Py_ssize_t nargs) {
     if (b == -1 && PyErr_Occurred()) {
         return nullptr;
     }
-    return PyLong_FromLongLong(static_cast<long long>(nanorbind_bench::add_i64_kernel(a, b)));
+    return PyLong_FromLongLong(static_cast<long long>(pyrabind_bench::add_i64_kernel(a, b)));
 }
 
 PyObject* raw_py_dot_view(PyObject*, PyObject* const* args, Py_ssize_t nargs) {
@@ -200,9 +200,9 @@ PyObject* raw_py_dot_view(PyObject*, PyObject* const* args, Py_ssize_t nargs) {
     constexpr Py_ssize_t kStride = static_cast<Py_ssize_t>(sizeof(double));
     double acc = 0.0;
     if (ga.view.strides[0] == kStride && gb.view.strides[0] == kStride && n > 0) {
-        acc = nanorbind_bench::dot_contiguous_kernel(static_cast<const double*>(ga.view.buf),
-                                                     static_cast<const double*>(gb.view.buf),
-                                                     static_cast<std::size_t>(n));
+        acc = pyrabind_bench::dot_contiguous_kernel(static_cast<const double*>(ga.view.buf),
+                                                    static_cast<const double*>(gb.view.buf),
+                                                    static_cast<std::size_t>(n));
     } else {
         const auto* pa = static_cast<const char*>(ga.view.buf);
         const auto* pb = static_cast<const char*>(gb.view.buf);
@@ -257,8 +257,8 @@ PyObject* raw_py_scale_ndarray(PyObject*, PyObject* const* args, Py_ssize_t narg
     auto* dst = static_cast<double*>(gout.view.buf);
     constexpr Py_ssize_t kStride = static_cast<Py_ssize_t>(sizeof(double));
     if (ga.view.strides[0] == kStride && n > 0) {
-        nanorbind_bench::scale_contiguous_kernel(static_cast<const double*>(ga.view.buf), dst,
-                                                 static_cast<std::size_t>(n), factor, offset);
+        pyrabind_bench::scale_contiguous_kernel(static_cast<const double*>(ga.view.buf), dst,
+                                                static_cast<std::size_t>(n), factor, offset);
     } else {
         const auto* pa = static_cast<const char*>(ga.view.buf);
         const Py_ssize_t sa = ga.view.strides[0];
@@ -282,8 +282,8 @@ PyObject* raw_py_mat_sum_view(PyObject*, PyObject* arg) {
     constexpr Py_ssize_t kStride = static_cast<Py_ssize_t>(sizeof(double));
     double acc = 0.0;
     if (rs == cols * kStride && cs == kStride) {
-        acc = nanorbind_bench::sum_contiguous_kernel(static_cast<const double*>(gm.view.buf),
-                                                     static_cast<std::size_t>(rows * cols));
+        acc = pyrabind_bench::sum_contiguous_kernel(static_cast<const double*>(gm.view.buf),
+                                                    static_cast<std::size_t>(rows * cols));
     } else {
         const auto* base = static_cast<const char*>(gm.view.buf);
         for (Py_ssize_t r = 0; r < rows; ++r) {

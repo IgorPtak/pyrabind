@@ -1,5 +1,5 @@
 #include "bench_kernels.hpp"
-#include "nanorbind/dataframe_types.hpp"
+#include "pyrabind/dataframe_types.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -13,7 +13,7 @@
 
 namespace {
 
-using nanorbind_bench::BenchPoint;
+using pyrabind_bench::BenchPoint;
 
 template <typename T> inline void do_not_optimize(const T& value) noexcept {
 #if defined(__clang__) || defined(__GNUC__)
@@ -37,11 +37,11 @@ inline void clobber_memory() noexcept {
 #endif
 
 BENCH_NOINLINE void cpp_noop() noexcept {
-    nanorbind_bench::noop_kernel();
+    pyrabind_bench::noop_kernel();
 }
 
 BENCH_NOINLINE std::int64_t cpp_add_i64(std::int64_t a, std::int64_t b) noexcept {
-    return nanorbind_bench::add_i64_kernel(a, b);
+    return pyrabind_bench::add_i64_kernel(a, b);
 }
 
 BENCH_NOINLINE double cpp_point_dot(const BenchPoint& a, const BenchPoint& b) noexcept {
@@ -49,21 +49,21 @@ BENCH_NOINLINE double cpp_point_dot(const BenchPoint& a, const BenchPoint& b) no
 }
 
 BENCH_NOINLINE double cpp_dot_100k(const double* a, const double* b, std::size_t n) noexcept {
-    return nanorbind_bench::dot_contiguous_kernel(a, b, n);
+    return pyrabind_bench::dot_contiguous_kernel(a, b, n);
 }
 
 BENCH_NOINLINE std::vector<double> cpp_scale_100k(const double* a, std::size_t n, double factor,
                                                   double offset) {
     std::vector<double> out(n);
-    nanorbind_bench::scale_contiguous_kernel(a, out.data(), n, factor, offset);
+    pyrabind_bench::scale_contiguous_kernel(a, out.data(), n, factor, offset);
     return out;
 }
 
 BENCH_NOINLINE double cpp_mat_sum_256(const double* data, std::size_t n) noexcept {
-    return nanorbind_bench::sum_contiguous_kernel(data, n);
+    return pyrabind_bench::sum_contiguous_kernel(data, n);
 }
 
-BENCH_NOINLINE nanorbind::data_frame cpp_df_transform(const nanorbind::data_frame& df) {
+BENCH_NOINLINE pyrabind::data_frame cpp_df_transform(const pyrabind::data_frame& df) {
     const auto& id_vec = std::get<std::vector<std::int64_t>>(df["id"]);
     const auto& x_vec = std::get<std::vector<double>>(df["x"]);
     const auto& tag_vec = std::get<std::vector<std::string>>(df["tag"]);
@@ -72,7 +72,7 @@ BENCH_NOINLINE nanorbind::data_frame cpp_df_transform(const nanorbind::data_fram
     for (std::size_t i = 0; i < n; ++i) {
         y_vec[i] = x_vec[i] * 2.0 + static_cast<double>(id_vec[i]);
     }
-    nanorbind::data_frame out;
+    pyrabind::data_frame out;
     out.add_column("id", id_vec);
     out.add_column("x", x_vec);
     out.add_column("y", std::move(y_vec));
@@ -149,7 +149,7 @@ int main() {
         df_x[i] = static_cast<double>(i) * 0.125;
         df_tag[i] = (i % 2 == 0) ? "even" : "odd";
     }
-    nanorbind::data_frame df;
+    pyrabind::data_frame df;
     df.add_column("id", std::move(df_id));
     df.add_column("x", std::move(df_x));
     df.add_column("tag", std::move(df_tag));

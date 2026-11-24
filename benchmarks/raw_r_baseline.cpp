@@ -21,7 +21,7 @@ template <typename FnPtr> DL_FUNC as_dl_func(FnPtr fn) noexcept {
 }
 
 void raw_point_finalizer(SEXP xptr) noexcept {
-    auto* ptr = static_cast<nanorbind_bench::BenchPoint*>(R_ExternalPtrAddr(xptr));
+    auto* ptr = static_cast<pyrabind_bench::BenchPoint*>(R_ExternalPtrAddr(xptr));
     if (ptr != nullptr) {
         delete ptr;
         R_ClearExternalPtr(xptr);
@@ -29,7 +29,7 @@ void raw_point_finalizer(SEXP xptr) noexcept {
 }
 
 SEXP raw_r_noop(void) {
-    nanorbind_bench::noop_kernel();
+    pyrabind_bench::noop_kernel();
     return R_NilValue;
 }
 
@@ -40,11 +40,11 @@ SEXP raw_r_add_i64(SEXP a, SEXP b) {
     const std::int64_t vb = (TYPEOF(b) == INTSXP && Rf_xlength(b) == 1)
                                 ? static_cast<std::int64_t>(INTEGER_RO(b)[0])
                                 : static_cast<std::int64_t>(Rf_asReal(b));
-    return Rf_ScalarReal(static_cast<double>(nanorbind_bench::add_i64_kernel(va, vb)));
+    return Rf_ScalarReal(static_cast<double>(pyrabind_bench::add_i64_kernel(va, vb)));
 }
 
 SEXP raw_r_point_new(SEXP x, SEXP y) {
-    auto* pt = new nanorbind_bench::BenchPoint(Rf_asReal(x), Rf_asReal(y));
+    auto* pt = new pyrabind_bench::BenchPoint(Rf_asReal(x), Rf_asReal(y));
     SEXP xptr = PROTECT(R_MakeExternalPtr(pt, R_NilValue, R_NilValue));
     R_RegisterCFinalizerEx(xptr, &raw_point_finalizer, TRUE);
     UNPROTECT(1);
@@ -55,8 +55,8 @@ SEXP raw_r_point_dot(SEXP a, SEXP b) {
     if (TYPEOF(a) != EXTPTRSXP || TYPEOF(b) != EXTPTRSXP) {
         Rf_error("expected external pointer BenchPoint");
     }
-    const auto* pa = static_cast<const nanorbind_bench::BenchPoint*>(R_ExternalPtrAddr(a));
-    const auto* pb = static_cast<const nanorbind_bench::BenchPoint*>(R_ExternalPtrAddr(b));
+    const auto* pa = static_cast<const pyrabind_bench::BenchPoint*>(R_ExternalPtrAddr(a));
+    const auto* pb = static_cast<const pyrabind_bench::BenchPoint*>(R_ExternalPtrAddr(b));
     if (pa == nullptr || pb == nullptr) {
         Rf_error("null BenchPoint external pointer");
     }
@@ -71,8 +71,8 @@ SEXP raw_r_dot_vec(SEXP a, SEXP b) {
     if (Rf_xlength(b) != n) {
         Rf_error("vectors must have equal length");
     }
-    return Rf_ScalarReal(nanorbind_bench::dot_contiguous_kernel(REAL_RO(a), REAL_RO(b),
-                                                                static_cast<std::size_t>(n)));
+    return Rf_ScalarReal(
+        pyrabind_bench::dot_contiguous_kernel(REAL_RO(a), REAL_RO(b), static_cast<std::size_t>(n)));
 }
 
 SEXP raw_r_scale_vec(SEXP a, SEXP factor, SEXP offset) {
@@ -84,8 +84,8 @@ SEXP raw_r_scale_vec(SEXP a, SEXP factor, SEXP offset) {
     const double off = Rf_asReal(offset);
     SEXP out = PROTECT(Rf_allocVector(REALSXP, n));
     if (n > 0) {
-        nanorbind_bench::scale_contiguous_kernel(REAL_RO(a), REAL(out), static_cast<std::size_t>(n),
-                                                 f, off);
+        pyrabind_bench::scale_contiguous_kernel(REAL_RO(a), REAL(out), static_cast<std::size_t>(n),
+                                                f, off);
     }
     UNPROTECT(1);
     return out;
@@ -97,7 +97,7 @@ SEXP raw_r_mat_sum(SEXP m) {
     }
     const R_xlen_t n = Rf_xlength(m);
     return Rf_ScalarReal(
-        nanorbind_bench::sum_contiguous_kernel(REAL_RO(m), static_cast<std::size_t>(n)));
+        pyrabind_bench::sum_contiguous_kernel(REAL_RO(m), static_cast<std::size_t>(n)));
 }
 
 int find_col_index(SEXP names, const char* target) {

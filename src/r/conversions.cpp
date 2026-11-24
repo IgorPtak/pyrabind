@@ -1,9 +1,9 @@
 #include "internal.hpp"
 
-#include "nanorbind/r/dataframe.hpp"
-#include "nanorbind/r/ndarray.hpp"
-#include "nanorbind/r/stl/function.hpp"
-#include "nanorbind/r/stl/vector.hpp"
+#include "pyrabind/r/dataframe.hpp"
+#include "pyrabind/r/ndarray.hpp"
+#include "pyrabind/r/stl/function.hpp"
+#include "pyrabind/r/stl/vector.hpp"
 
 #include <cmath>
 #include <cstring>
@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace nanorbind::r_detail {
+namespace pyrabind::r_detail {
 
 namespace {
 
@@ -294,10 +294,10 @@ SEXP r_wrap_instance(instance_box box, const class_record* cls, rv_policy policy
 
     auto cache_it = rt.class_cache.find(cls);
     if (cache_it != rt.class_cache.end()) {
-        Rf_setAttrib(xptr, rt.nr_attr_sym, cache_it->second.cls_env.data());
+        Rf_setAttrib(xptr, rt.pb_attr_sym, cache_it->second.cls_env.data());
         Rf_setAttrib(xptr, R_ClassSymbol, cache_it->second.s3_classes.data());
     } else {
-        SEXP s3 = PROTECT(Rf_mkString("nanorbind_object"));
+        SEXP s3 = PROTECT(Rf_mkString("pyrabind_object"));
         Rf_setAttrib(xptr, R_ClassSymbol, s3);
         UNPROTECT(1);
     }
@@ -333,12 +333,12 @@ SEXP r_wrap_enum(const enum_record* rec, std::int64_t val) {
     if (it != rt.enum_cache.end()) {
         Rf_setAttrib(xptr, R_ClassSymbol, it->second.s3_classes.data());
     } else {
-        SEXP s3 = PROTECT(Rf_mkString("nanorbind_enum"));
+        SEXP s3 = PROTECT(Rf_mkString("pyrabind_enum"));
         Rf_setAttrib(xptr, R_ClassSymbol, s3);
         UNPROTECT(1);
     }
     if (rt.dispatch_env.data() != R_NilValue) {
-        Rf_setAttrib(xptr, rt.nr_attr_sym, rt.dispatch_env.data());
+        Rf_setAttrib(xptr, rt.pb_attr_sym, rt.dispatch_env.data());
     }
 
     UNPROTECT(1);
@@ -381,7 +381,7 @@ SEXP r_wrap_cpp_function(std::shared_ptr<function_record> rec) {
     SEXP disp_env = rt.dispatch_env.data();
     if (disp_env == R_NilValue) {
         UNPROTECT(1);
-        throw type_error("nanorbind R dispatch environment not initialized");
+        throw type_error("pyrabind R dispatch environment not initialized");
     }
     SEXP make_fn = R_getVar(Rf_install("make_fn"), disp_env, FALSE);
     SEXP name_s = PROTECT(Rf_mkString("<cpp_function>"));
@@ -406,18 +406,18 @@ SEXP r_invoke_r_callable(SEXP fn_sexp, const std::vector<SEXP>& args) {
     return res;
 }
 
-bool r_acquire_ndarray(SEXP x, nr_dtype req_dtype, bool require_writable, std::int32_t req_ndim,
+bool r_acquire_ndarray(SEXP x, pb_dtype req_dtype, bool require_writable, std::int32_t req_ndim,
                        const std::int64_t* req_shape, char req_order, r_ndarray_desc& out) {
     if (x == nullptr || x == R_NilValue) {
         return false;
     }
 
     const SEXPTYPE tp = static_cast<SEXPTYPE>(TYPEOF(x));
-    nr_dtype actual_dtype = nr_dtype::any;
+    pb_dtype actual_dtype = pb_dtype::any;
     void* raw_ptr = nullptr;
 
     if (tp == REALSXP) {
-        actual_dtype = nr_dtype::f64;
+        actual_dtype = pb_dtype::f64;
         if (require_writable) {
             if (ALTREP(x)) {
                 return false;
@@ -427,7 +427,7 @@ bool r_acquire_ndarray(SEXP x, nr_dtype req_dtype, bool require_writable, std::i
             raw_ptr = const_cast<double*>(REAL_RO(x));
         }
     } else if (tp == INTSXP) {
-        actual_dtype = nr_dtype::i32;
+        actual_dtype = pb_dtype::i32;
         if (require_writable) {
             if (ALTREP(x)) {
                 return false;
@@ -437,7 +437,7 @@ bool r_acquire_ndarray(SEXP x, nr_dtype req_dtype, bool require_writable, std::i
             raw_ptr = const_cast<int*>(INTEGER_RO(x));
         }
     } else if (tp == RAWSXP) {
-        actual_dtype = nr_dtype::u8;
+        actual_dtype = pb_dtype::u8;
         if (require_writable) {
             if (ALTREP(x)) {
                 return false;
@@ -450,7 +450,7 @@ bool r_acquire_ndarray(SEXP x, nr_dtype req_dtype, bool require_writable, std::i
         return false;
     }
 
-    if (req_dtype != nr_dtype::any && req_dtype != actual_dtype) {
+    if (req_dtype != pb_dtype::any && req_dtype != actual_dtype) {
         return false;
     }
 
@@ -584,18 +584,18 @@ SEXP r_export_ndarray(const r_ndarray_export& info) {
 
     SEXPTYPE sexp_tp = REALSXP;
     switch (info.dtype) {
-    case nr_dtype::f64:
-    case nr_dtype::f32:
-    case nr_dtype::i64:
+    case pb_dtype::f64:
+    case pb_dtype::f32:
+    case pb_dtype::i64:
         sexp_tp = REALSXP;
         break;
-    case nr_dtype::i32:
+    case pb_dtype::i32:
         sexp_tp = INTSXP;
         break;
-    case nr_dtype::bool8:
+    case pb_dtype::bool8:
         sexp_tp = LGLSXP;
         break;
-    case nr_dtype::u8:
+    case pb_dtype::u8:
         sexp_tp = RAWSXP;
         break;
     default:
@@ -622,22 +622,22 @@ SEXP r_export_ndarray(const r_ndarray_export& info) {
 
     if (total > 0 && info.data != nullptr) {
         switch (info.dtype) {
-        case nr_dtype::f64:
+        case pb_dtype::f64:
             copy_ndarray_strided(static_cast<const double*>(info.data), REAL(out), info);
             break;
-        case nr_dtype::f32:
+        case pb_dtype::f32:
             copy_ndarray_strided(static_cast<const float*>(info.data), REAL(out), info);
             break;
-        case nr_dtype::i64:
+        case pb_dtype::i64:
             copy_ndarray_strided(static_cast<const std::int64_t*>(info.data), REAL(out), info);
             break;
-        case nr_dtype::i32:
+        case pb_dtype::i32:
             copy_ndarray_strided(static_cast<const std::int32_t*>(info.data), INTEGER(out), info);
             break;
-        case nr_dtype::bool8:
+        case pb_dtype::bool8:
             copy_ndarray_strided(static_cast<const bool*>(info.data), LOGICAL(out), info);
             break;
-        case nr_dtype::u8:
+        case pb_dtype::u8:
             copy_ndarray_strided(static_cast<const std::uint8_t*>(info.data), RAW(out), info);
             break;
         default:
@@ -787,4 +787,4 @@ SEXP r_from_data_frame(const data_frame& df) {
     return out;
 }
 
-} // namespace nanorbind::r_detail
+} // namespace pyrabind::r_detail

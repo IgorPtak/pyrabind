@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run C++, Python (nanorbind vs raw nanobind vs raw C-API), and R overhead benchmarks."""
+"""Run C++, Python (pyrabind vs raw nanobind vs raw C-API), and R overhead benchmarks."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     build_dir = args.build_dir if args.build_dir.is_absolute() else (repo_root / args.build_dir)
 
-    cpp_bin = build_dir / "benchmarks" / "cpp" / "nanorbind_bench_cpp"
+    cpp_bin = build_dir / "benchmarks" / "cpp" / "pyrabind_bench_cpp"
     cpp_res = json.loads(subprocess.check_output([str(cpp_bin)], text=True))
 
     py_script = repo_root / "benchmarks" / "run_bench.py"
@@ -58,13 +58,13 @@ def main() -> int:
     )
 
     r_script = repo_root / "benchmarks" / "run_bench.R"
-    nanorbind_r = repo_root / "r" / "nanorbind.R"
+    pyrabind_r = repo_root / "r" / "pyrabind.R"
     r_dir = build_dir / "benchmarks" / "r"
     bench_r_shlib = find_shlib(r_dir, "bench_module")
     raw_r_shlib = find_shlib(r_dir, "raw_r_bench")
     r_res = json.loads(
         subprocess.check_output(
-            [args.rscript, str(r_script), str(nanorbind_r), str(bench_r_shlib), str(raw_r_shlib)],
+            [args.rscript, str(r_script), str(pyrabind_r), str(bench_r_shlib), str(raw_r_shlib)],
             text=True,
         )
     )
@@ -93,37 +93,37 @@ def main() -> int:
 
     print("### Core Dispatch & Scalar/Class Overhead (median latency)\n")
     print(
-        "| Benchmark | C++ `-O3` | Python `nanorbind` | Raw `nanobind` | `nanorbind`/`nb` | "
-        "Python raw C-API | R `nanorbind` | R raw `.Call` | `nanorbind`/raw (R) |"
+        "| Benchmark | C++ `-O3` | Python `pyrabind` | Raw `nanobind` | `pyrabind`/`nb` | "
+        "Python raw C-API | R `pyrabind` | R raw `.Call` | `pyrabind`/raw (R) |"
     )
     print("| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
     for name in ("noop", "add_i64", "point_dot"):
         c_ns = cpp_res[name]["median_ns"]
         py_b = py_res["benchmarks"][name]
         r_b = r_res["benchmarks"][name]
-        py_nr = py_b["nanorbind"]["median_ns"]
+        py_pb = py_b["pyrabind"]["median_ns"]
         py_nb = py_b["raw_nanobind"]["median_ns"]
         py_raw = py_b["raw_capi"]["median_ns"]
-        r_nr = r_b["nanorbind"]["median_ns"]
+        r_pb = r_b["pyrabind"]["median_ns"]
         r_raw = r_b["raw_capi"]["median_ns"]
         print(
-            f"| `{name}` | {fmt_ns(c_ns)} | {fmt_ns(py_nr)} | {fmt_ns(py_nb)} | "
-            f"{fmt_ratio(py_nr, py_nb)} | {fmt_ns(py_raw)} | {fmt_ns(r_nr)} | "
-            f"{fmt_ns(r_raw)} | {fmt_ratio(r_nr, r_raw)} |"
+            f"| `{name}` | {fmt_ns(c_ns)} | {fmt_ns(py_pb)} | {fmt_ns(py_nb)} | "
+            f"{fmt_ratio(py_pb, py_nb)} | {fmt_ns(py_raw)} | {fmt_ns(r_pb)} | "
+            f"{fmt_ns(r_raw)} | {fmt_ratio(r_pb, r_raw)} |"
         )
-    if "point_dot" in r_res["benchmarks"] and "nanorbind_cached" in r_res["benchmarks"]["point_dot"]:
+    if "point_dot" in r_res["benchmarks"] and "pyrabind_cached" in r_res["benchmarks"]["point_dot"]:
         r_b = r_res["benchmarks"]["point_dot"]
         print(
             f"\nR cached method closure (`pdot <- p1$dot; pdot(p2)`): "
-            f"{fmt_ns(r_b['nanorbind_cached']['median_ns'])} "
-            f"({fmt_ratio(r_b['nanorbind_cached']['median_ns'], r_b['raw_capi']['median_ns'])} vs raw `.Call`)"
+            f"{fmt_ns(r_b['pyrabind_cached']['median_ns'])} "
+            f"({fmt_ratio(r_b['pyrabind_cached']['median_ns'], r_b['raw_capi']['median_ns'])} vs raw `.Call`)"
         )
 
     print("\n### Array, Matrix & DataFrame Workloads (median latency)\n")
     print(
-        "| Workload | C++ `-O3` | Python `nanorbind` (zero-copy) | Raw `nanobind` | `nanorbind`/`nb` | "
-        "Python `std::vector` copy (`nr` / `nb`) | Python raw C-API | Pure NumPy/pandas | "
-        "R `nanorbind` (zero-copy) | R `std::vector` copy | R raw `.Call` | Pure base R |"
+        "| Workload | C++ `-O3` | Python `pyrabind` (zero-copy) | Raw `nanobind` | `pyrabind`/`nb` | "
+        "Python `std::vector` copy (`pb` / `nb`) | Python raw C-API | Pure NumPy/pandas | "
+        "R `pyrabind` (zero-copy) | R `std::vector` copy | R raw `.Call` | Pure base R |"
     )
     print("| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
 
@@ -153,16 +153,16 @@ def main() -> int:
             f"{fmt_ns(r_raw_v)} | {fmt_ns(r_pure_v)} |"
         )
 
-    row_array("dot_100k", "nanorbind_view", "nanorbind_vec_copy", "nanorbind_view", "nanorbind_vec_copy")
+    row_array("dot_100k", "pyrabind_view", "pyrabind_vec_copy", "pyrabind_view", "pyrabind_vec_copy")
     row_array(
         "scale_100k",
-        "nanorbind_ndarray",
-        "nanorbind_vec_copy",
-        "nanorbind_ndarray",
-        "nanorbind_vec_copy",
+        "pyrabind_ndarray",
+        "pyrabind_vec_copy",
+        "pyrabind_ndarray",
+        "pyrabind_vec_copy",
     )
-    row_array("mat_sum_256", "nanorbind_view", None, "nanorbind_view", None)
-    row_array("df_transform_100k", "nanorbind", None, "nanorbind", None)
+    row_array("mat_sum_256", "pyrabind_view", None, "pyrabind_view", None)
+    row_array("df_transform_100k", "pyrabind", None, "pyrabind", None)
     return 0
 
 

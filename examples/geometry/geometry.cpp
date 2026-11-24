@@ -1,11 +1,11 @@
-#include "nanorbind/nanorbind.hpp"
-#include "nanorbind/ndarray.hpp"
-#include "nanorbind/operators.hpp"
+#include "pyrabind/pyrabind.hpp"
+#include "pyrabind/ndarray.hpp"
+#include "pyrabind/operators.hpp"
 
 #include <cmath>
 #include <cstddef>
 
-namespace nb = nanorbind;
+namespace nb = pyrabind;
 
 struct Vec2 {
     double x = 0.0;
@@ -37,7 +37,7 @@ static double array_dot(nb::ndarray<const double, nb::ndim<1>> a,
     return acc;
 }
 
-NANORBIND_MODULE(geometry, m) {
+PYRABIND_MODULE(geometry, m) {
     using namespace nb::literals;
     m.doc() = "2D geometry module shared across Python and R";
 

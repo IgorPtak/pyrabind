@@ -1,20 +1,20 @@
-add_executable(nanorbind_bench_cpp bench_cpp.cpp)
-target_link_libraries(nanorbind_bench_cpp PRIVATE nanorbind::core)
-target_compile_definitions(nanorbind_bench_cpp PRIVATE NANORBIND_CORE_ONLY)
-set_target_properties(nanorbind_bench_cpp PROPERTIES
+add_executable(pyrabind_bench_cpp bench_cpp.cpp)
+target_link_libraries(pyrabind_bench_cpp PRIVATE pyrabind::core)
+target_compile_definitions(pyrabind_bench_cpp PRIVATE PYRABIND_CORE_ONLY)
+set_target_properties(pyrabind_bench_cpp PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/cpp"
 )
-nanorbind_apply_strict_warnings(nanorbind_bench_cpp)
+pyrabind_apply_strict_warnings(pyrabind_bench_cpp)
 
-nanorbind_add_module(bench_module NOMINSIZE SOURCES bench_module.cpp)
+pyrabind_add_module(bench_module NOMINSIZE SOURCES bench_module.cpp)
 
-if(NANORBIND_BUILD_PYTHON)
+if(PYRABIND_BUILD_PYTHON)
     nanobind_add_module(raw_nb_bench NB_STATIC NOMINSIZE raw_nb_baseline.cpp)
     set_target_properties(raw_nb_bench PROPERTIES
         OUTPUT_NAME "raw_nb_bench"
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/python"
     )
-    nanorbind_apply_strict_warnings(raw_nb_bench)
+    pyrabind_apply_strict_warnings(raw_nb_bench)
 
     Python_add_library(raw_py_bench MODULE WITH_SOABI raw_py_baseline.cpp)
     set_target_properties(raw_py_bench PROPERTIES
@@ -24,10 +24,10 @@ if(NANORBIND_BUILD_PYTHON)
         VISIBILITY_INLINES_HIDDEN ON
     )
     target_include_directories(raw_py_bench SYSTEM PRIVATE ${Python_INCLUDE_DIRS})
-    nanorbind_apply_strict_warnings(raw_py_bench)
+    pyrabind_apply_strict_warnings(raw_py_bench)
 endif()
 
-if(NANORBIND_BUILD_R)
+if(PYRABIND_BUILD_R)
     add_library(raw_r_bench MODULE raw_r_baseline.cpp)
     set_target_properties(raw_r_bench PROPERTIES
         PREFIX ""
@@ -40,5 +40,5 @@ if(NANORBIND_BUILD_R)
     )
     target_include_directories(raw_r_bench SYSTEM PRIVATE "${R_INCLUDE_DIR}")
     target_link_libraries(raw_r_bench PRIVATE R::R)
-    nanorbind_apply_strict_warnings(raw_r_bench)
+    pyrabind_apply_strict_warnings(raw_r_bench)
 endif()

@@ -1,8 +1,8 @@
-#include "nanorbind/dataframe.hpp"
-#include "nanorbind/nanorbind.hpp"
-#include "nanorbind/ndarray.hpp"
-#include "nanorbind/operators.hpp"
-#include "nanorbind/stl.hpp"
+#include "pyrabind/dataframe.hpp"
+#include "pyrabind/pyrabind.hpp"
+#include "pyrabind/ndarray.hpp"
+#include "pyrabind/operators.hpp"
+#include "pyrabind/stl.hpp"
 
 #include <array>
 #include <cmath>
@@ -18,7 +18,7 @@
 #include <variant>
 #include <vector>
 
-namespace nb = nanorbind;
+namespace nb = pyrabind;
 
 namespace {
 
@@ -303,9 +303,9 @@ nb::data_frame transform_df(const nb::data_frame& df) {
 
 } // namespace
 
-NANORBIND_MODULE(test_module, m) {
+PYRABIND_MODULE(test_module, m) {
     using namespace nb::literals;
-    m.doc() = "Comprehensive dual-target nanorbind test module";
+    m.doc() = "Comprehensive dual-target pyrabind test module";
     m.attr("PI") = 3.141592653589793;
 
     nb::enum_<Color>(m, "Color", nb::is_arithmetic())

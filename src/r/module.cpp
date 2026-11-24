@@ -7,7 +7,7 @@
 #include <string_view>
 #include <vector>
 
-namespace nanorbind::r_detail {
+namespace pyrabind::r_detail {
 
 namespace {
 
@@ -172,7 +172,7 @@ void build_r_class_cache(const class_record* cls, SEXP disp_env, SEXP make_cls_m
         SET_STRING_ELT(s3_cls, i,
                        Rf_mkCharLenCE(qname.data(), static_cast<int>(qname.size()), CE_UTF8));
     }
-    SET_STRING_ELT(s3_cls, nh - 1, Rf_mkChar("nanorbind_object"));
+    SET_STRING_ELT(s3_cls, nh - 1, Rf_mkChar("pyrabind_object"));
 
     RClassCache cached;
     cached.cls_env = cpp11::sexp(cls_env);
@@ -191,7 +191,7 @@ void build_r_enum_cache(const enum_record* en) {
     SET_STRING_ELT(s3_cls, 0,
                    Rf_mkCharLenCE(en->qualified_name.data(),
                                   static_cast<int>(en->qualified_name.size()), CE_UTF8));
-    SET_STRING_ELT(s3_cls, 1, Rf_mkChar("nanorbind_enum"));
+    SET_STRING_ELT(s3_cls, 1, Rf_mkChar("pyrabind_enum"));
 
     REnumCache cached;
     cached.s3_classes = cpp11::sexp(s3_cls);
@@ -307,7 +307,7 @@ SEXP r_create_module_env(const char* name, SEXP dispatch_env, void (*init_fn)(mo
 
 extern "C" {
 
-NANORBIND_R_EXPORT SEXP nanorbind_ext_call_fn(SEXP args) {
+PYRABIND_R_EXPORT SEXP pyrabind_ext_call_fn(SEXP args) {
     return r_error_boundary([&]() -> SEXP {
         auto& rt = RRuntimeState::instance();
         rt.ensure_symbols();
@@ -317,12 +317,12 @@ NANORBIND_R_EXPORT SEXP nanorbind_ext_call_fn(SEXP args) {
         parse_external_pairlist(args, cargs, fn_xptr, false);
 
         if (TYPEOF(fn_xptr) != EXTPTRSXP || R_ExternalPtrTag(fn_xptr) != rt.fn_tag) {
-            throw type_error("invalid nanorbind function handle");
+            throw type_error("invalid pyrabind function handle");
         }
         const function_record* rec = nullptr;
         void* addr = R_ExternalPtrAddr(fn_xptr);
         if (addr == nullptr) {
-            throw type_error("null nanorbind function handle");
+            throw type_error("null pyrabind function handle");
         }
         if (R_ExternalPtrProtected(fn_xptr) == rt.fn_tag) {
             rec = static_cast<const RFuncHolder*>(addr)->rec;
@@ -333,7 +333,7 @@ NANORBIND_R_EXPORT SEXP nanorbind_ext_call_fn(SEXP args) {
     });
 }
 
-NANORBIND_R_EXPORT SEXP nanorbind_ext_construct(SEXP args) {
+PYRABIND_R_EXPORT SEXP pyrabind_ext_construct(SEXP args) {
     return r_error_boundary([&]() -> SEXP {
         auto& rt = RRuntimeState::instance();
         rt.ensure_symbols();
@@ -343,17 +343,17 @@ NANORBIND_R_EXPORT SEXP nanorbind_ext_construct(SEXP args) {
         parse_external_pairlist(args, cargs, cls_xptr, false);
 
         if (TYPEOF(cls_xptr) != EXTPTRSXP || R_ExternalPtrTag(cls_xptr) != rt.cls_tag) {
-            throw type_error("invalid nanorbind class handle");
+            throw type_error("invalid pyrabind class handle");
         }
         const auto* cls = static_cast<const class_record*>(R_ExternalPtrAddr(cls_xptr));
         if (cls == nullptr) {
-            throw type_error("null nanorbind class handle");
+            throw type_error("null pyrabind class handle");
         }
         return dispatch_overload_list(cls->constructors, cargs, cls->qualified_name, R_NilValue);
     });
 }
 
-NANORBIND_R_EXPORT SEXP nanorbind_ext_call_method(SEXP args) {
+PYRABIND_R_EXPORT SEXP pyrabind_ext_call_method(SEXP args) {
     return r_error_boundary([&]() -> SEXP {
         auto& rt = RRuntimeState::instance();
         rt.ensure_symbols();
@@ -363,22 +363,22 @@ NANORBIND_R_EXPORT SEXP nanorbind_ext_call_method(SEXP args) {
         parse_external_pairlist(args, cargs, meth_xptr, true);
 
         if (TYPEOF(meth_xptr) != EXTPTRSXP || R_ExternalPtrTag(meth_xptr) != rt.meth_tag) {
-            throw type_error("invalid nanorbind method handle");
+            throw type_error("invalid pyrabind method handle");
         }
         const auto* meth = static_cast<const function_record*>(R_ExternalPtrAddr(meth_xptr));
         if (meth == nullptr) {
-            throw type_error("null nanorbind method handle");
+            throw type_error("null pyrabind method handle");
         }
         return dispatch_overload_list(meth->overloads, cargs, meth->name, cargs.pos_at(0));
     });
 }
 
-NANORBIND_R_EXPORT SEXP nanorbind_call_get_prop(SEXP obj, SEXP prop_xptr) {
+PYRABIND_R_EXPORT SEXP pyrabind_call_get_prop(SEXP obj, SEXP prop_xptr) {
     return r_error_boundary([&]() -> SEXP {
         auto& rt = RRuntimeState::instance();
         rt.ensure_symbols();
         if (TYPEOF(prop_xptr) != EXTPTRSXP || R_ExternalPtrTag(prop_xptr) != rt.prop_tag) {
-            throw type_error("invalid nanorbind property handle");
+            throw type_error("invalid pyrabind property handle");
         }
         const auto* prop = static_cast<const property_record*>(R_ExternalPtrAddr(prop_xptr));
         if (prop == nullptr || !prop->getter) {
@@ -388,12 +388,12 @@ NANORBIND_R_EXPORT SEXP nanorbind_call_get_prop(SEXP obj, SEXP prop_xptr) {
     });
 }
 
-NANORBIND_R_EXPORT SEXP nanorbind_call_set_prop(SEXP obj, SEXP prop_xptr, SEXP val) {
+PYRABIND_R_EXPORT SEXP pyrabind_call_set_prop(SEXP obj, SEXP prop_xptr, SEXP val) {
     return r_error_boundary([&]() -> SEXP {
         auto& rt = RRuntimeState::instance();
         rt.ensure_symbols();
         if (TYPEOF(prop_xptr) != EXTPTRSXP || R_ExternalPtrTag(prop_xptr) != rt.prop_tag) {
-            throw type_error("invalid nanorbind property handle");
+            throw type_error("invalid pyrabind property handle");
         }
         const auto* prop = static_cast<const property_record*>(R_ExternalPtrAddr(prop_xptr));
         if (prop == nullptr) {
@@ -407,7 +407,7 @@ NANORBIND_R_EXPORT SEXP nanorbind_call_set_prop(SEXP obj, SEXP prop_xptr, SEXP v
     });
 }
 
-NANORBIND_R_EXPORT SEXP nanorbind_call_op(SEXP op_sexp, SEXP lhs, SEXP rhs, SEXP unary_sexp) {
+PYRABIND_R_EXPORT SEXP pyrabind_call_op(SEXP op_sexp, SEXP lhs, SEXP rhs, SEXP unary_sexp) {
     return r_error_boundary([&]() -> SEXP {
         std::string op_name;
         if (!r_to_string(op_sexp, false, op_name)) {
@@ -465,7 +465,7 @@ NANORBIND_R_EXPORT SEXP nanorbind_call_op(SEXP op_sexp, SEXP lhs, SEXP rhs, SEXP
     });
 }
 
-NANORBIND_R_EXPORT SEXP nanorbind_call_special(SEXP obj, SEXP kind_sexp) {
+PYRABIND_R_EXPORT SEXP pyrabind_call_special(SEXP obj, SEXP kind_sexp) {
     return r_error_boundary([&]() -> SEXP {
         std::string kind;
         if (!r_to_string(kind_sexp, false, kind)) {
@@ -478,13 +478,13 @@ NANORBIND_R_EXPORT SEXP nanorbind_call_special(SEXP obj, SEXP kind_sexp) {
                 cargs.add_pos(obj);
                 return dispatch_overload_list(fn->overloads, cargs, "__repr__", obj);
             }
-            return r_from_string("<nanorbind " + h->cls->qualified_name + ">");
+            return r_from_string("<pyrabind " + h->cls->qualified_name + ">");
         }
         throw value_error("unknown special op '" + kind + "'");
     });
 }
 
-NANORBIND_R_EXPORT SEXP nanorbind_call_enum_op(SEXP op_sexp, SEXP a_sexp, SEXP b_sexp) {
+PYRABIND_R_EXPORT SEXP pyrabind_call_enum_op(SEXP op_sexp, SEXP a_sexp, SEXP b_sexp) {
     return r_error_boundary([&]() -> SEXP {
         std::string op;
         if (!r_to_string(op_sexp, false, op)) {
@@ -525,4 +525,4 @@ NANORBIND_R_EXPORT SEXP nanorbind_call_enum_op(SEXP op_sexp, SEXP a_sexp, SEXP b
 
 } // extern "C"
 
-} // namespace nanorbind::r_detail
+} // namespace pyrabind::r_detail

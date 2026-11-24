@@ -4,16 +4,16 @@
 #include <cpp11/protect.hpp>
 #include <cpp11/sexp.hpp>
 
-#include "nanorbind/r/backend.hpp"
-#include "nanorbind/r/registry.hpp"
-#include "nanorbind/r/types.hpp"
+#include "pyrabind/r/backend.hpp"
+#include "pyrabind/r/registry.hpp"
+#include "pyrabind/r/types.hpp"
 
 #include <cstring>
 #include <memory>
 #include <string>
 #include <unordered_map>
 
-namespace nanorbind::r_detail {
+namespace pyrabind::r_detail {
 
 struct RClassCache {
     cpp11::sexp cls_env;
@@ -32,7 +32,7 @@ struct RRuntimeState {
     SEXP meth_tag = R_NilValue;
     SEXP prop_tag = R_NilValue;
     SEXP capsule_tag = R_NilValue;
-    SEXP nr_attr_sym = R_NilValue;
+    SEXP pb_attr_sym = R_NilValue;
     SEXP stop_fn = R_NilValue;
     cpp11::sexp keep_alive_pool;
     cpp11::sexp dispatch_env;
@@ -110,4 +110,4 @@ const REnumHolder* r_unwrap_enum(SEXP x);
 SEXP dispatch_overload_list(const std::vector<overload_record>& overloads, const call_args& cargs,
                             std::string_view fn_name, SEXP parent = R_NilValue);
 
-} // namespace nanorbind::r_detail
+} // namespace pyrabind::r_detail

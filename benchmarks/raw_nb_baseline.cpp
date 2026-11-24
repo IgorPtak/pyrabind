@@ -23,11 +23,11 @@ struct RawBenchPoint {
 };
 
 void noop() {
-    nanorbind_bench::noop_kernel();
+    pyrabind_bench::noop_kernel();
 }
 
 std::int64_t add_i64(std::int64_t a, std::int64_t b) {
-    return nanorbind_bench::add_i64_kernel(a, b);
+    return pyrabind_bench::add_i64_kernel(a, b);
 }
 
 double dot_view(nb::ndarray<const double, nb::ndim<1>> a,
@@ -37,7 +37,7 @@ double dot_view(nb::ndarray<const double, nb::ndim<1>> a,
         throw nb::value_error("dot_view requires arrays of equal length");
     }
     if (a.stride(0) == 1 && b.stride(0) == 1 && n > 0) {
-        return nanorbind_bench::dot_contiguous_kernel(a.data(), b.data(), n);
+        return pyrabind_bench::dot_contiguous_kernel(a.data(), b.data(), n);
     }
     auto va = a.view();
     auto vb = b.view();
@@ -53,7 +53,7 @@ double dot_vec(const std::vector<double>& a, const std::vector<double>& b) {
     if (b.size() != n) {
         throw nb::value_error("dot_vec requires vectors of equal length");
     }
-    return nanorbind_bench::dot_contiguous_kernel(a.data(), b.data(), n);
+    return pyrabind_bench::dot_contiguous_kernel(a.data(), b.data(), n);
 }
 
 nb::ndarray<nb::numpy, double, nb::ndim<1>> scale_ndarray(nb::ndarray<const double, nb::ndim<1>> a,
@@ -61,7 +61,7 @@ nb::ndarray<nb::numpy, double, nb::ndim<1>> scale_ndarray(nb::ndarray<const doub
     const std::size_t n = a.shape(0);
     auto* buf = new double[n];
     if (a.stride(0) == 1 && n > 0) {
-        nanorbind_bench::scale_contiguous_kernel(a.data(), buf, n, factor, offset);
+        pyrabind_bench::scale_contiguous_kernel(a.data(), buf, n, factor, offset);
     } else {
         auto va = a.view();
         for (std::size_t i = 0; i < n; ++i) {
@@ -76,7 +76,7 @@ std::vector<double> scale_vec(const std::vector<double>& a, double factor, doubl
     const std::size_t n = a.size();
     std::vector<double> out(n);
     if (n > 0) {
-        nanorbind_bench::scale_contiguous_kernel(a.data(), out.data(), n, factor, offset);
+        pyrabind_bench::scale_contiguous_kernel(a.data(), out.data(), n, factor, offset);
     }
     return out;
 }
@@ -88,7 +88,7 @@ double mat_sum_view(nb::ndarray<const double, nb::ndim<2>> m) {
     const std::int64_t cs = m.stride(1);
     if ((rs == static_cast<std::int64_t>(cols) && cs == 1) ||
         (rs == 1 && cs == static_cast<std::int64_t>(rows))) {
-        return nanorbind_bench::sum_contiguous_kernel(m.data(), rows * cols);
+        return pyrabind_bench::sum_contiguous_kernel(m.data(), rows * cols);
     }
     auto vm = m.view();
     double acc = 0.0;

@@ -3,15 +3,15 @@
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 3) {
-    stop("usage: run_bench.R <nanorbind.R> <bench_module.so> <raw_r_bench.so>")
+    stop("usage: run_bench.R <pyrabind.R> <bench_module.so> <raw_r_bench.so>")
 }
 
-nanorbind_r_path <- args[[1]]
+pyrabind_r_path <- args[[1]]
 bench_mod_path <- args[[2]]
 raw_r_path <- args[[3]]
 
-source(nanorbind_r_path)
-mod <- nanorbind_load(bench_mod_path, "bench_module")
+source(pyrabind_r_path)
+mod <- pyrabind_load(bench_mod_path)
 
 raw_dll <- dyn.load(raw_r_path)
 sym_noop <- getNativeSymbolInfo("raw_r_noop", raw_dll)
@@ -73,12 +73,12 @@ measure_r <- function(fn, target_trial_ms = 20.0, trials = 19L, min_iters = 1L, 
 stopifnot(mod$add_i64(17L, 25L) == 42)
 stopifnot(.Call(sym_add_i64, 17L, 25L) == 42)
 
-p_nr_1 <- mod$BenchPoint(3.0, 4.0)
-p_nr_2 <- mod$BenchPoint(-1.5, 2.5)
-p_nr_dot <- p_nr_1$dot
+p_pb_1 <- mod$BenchPoint(3.0, 4.0)
+p_pb_2 <- mod$BenchPoint(-1.5, 2.5)
+p_pb_dot <- p_pb_1$dot
 p_raw_1 <- .Call(sym_point_new, 3.0, 4.0)
 p_raw_2 <- .Call(sym_point_new, -1.5, 2.5)
-stopifnot(abs(p_nr_1$dot(p_nr_2) - 5.5) < 1e-12)
+stopifnot(abs(p_pb_1$dot(p_pb_2) - 5.5) < 1e-12)
 stopifnot(abs(.Call(sym_point_dot, p_raw_1, p_raw_2) - 5.5) < 1e-12)
 
 pure_noop <- function() NULL
@@ -110,57 +110,57 @@ df <- data.frame(
     tag = ifelse((idx %% 2L) == 0L, "even", "odd"),
     stringsAsFactors = FALSE
 )
-out_df_nr <- mod$df_transform(df)
+out_df_pb <- mod$df_transform(df)
 out_df_raw <- .Call(sym_df_transform, df)
-stopifnot(identical(names(out_df_nr), c("id", "x", "y", "tag")))
-stopifnot(nrow(out_df_nr) == n)
-stopifnot(max(abs(out_df_nr$y - out_df_raw$y)) < 1e-12)
+stopifnot(identical(names(out_df_pb), c("id", "x", "y", "tag")))
+stopifnot(nrow(out_df_pb) == n)
+stopifnot(max(abs(out_df_pb$y - out_df_raw$y)) < 1e-12)
 
-nr_noop_fn <- mod$noop
-nr_add_fn <- mod$add_i64
-nr_dot_view_fn <- mod$dot_view
-nr_dot_vec_fn <- mod$dot_vec
-nr_scale_nd_fn <- mod$scale_ndarray
-nr_scale_vec_fn <- mod$scale_vec
-nr_mat_view_fn <- mod$mat_sum_view
-nr_df_fn <- mod$df_transform
+pb_noop_fn <- mod$noop
+pb_add_fn <- mod$add_i64
+pb_dot_view_fn <- mod$dot_view
+pb_dot_vec_fn <- mod$dot_vec
+pb_scale_nd_fn <- mod$scale_ndarray
+pb_scale_vec_fn <- mod$scale_vec
+pb_mat_view_fn <- mod$mat_sum_view
+pb_df_fn <- mod$df_transform
 
 benchmarks <- list(
     noop = list(
-        nanorbind = measure_r(function() nr_noop_fn()),
+        pyrabind = measure_r(function() pb_noop_fn()),
         raw_capi = measure_r(function() .Call(sym_noop)),
         pure_lang = measure_r(function() pure_noop())
     ),
     add_i64 = list(
-        nanorbind = measure_r(function() nr_add_fn(17L, 25L)),
+        pyrabind = measure_r(function() pb_add_fn(17L, 25L)),
         raw_capi = measure_r(function() .Call(sym_add_i64, 17L, 25L)),
         pure_lang = measure_r(function() pure_add_i64(17L, 25L))
     ),
     point_dot = list(
-        nanorbind = measure_r(function() p_nr_1$dot(p_nr_2)),
-        nanorbind_cached = measure_r(function() p_nr_dot(p_nr_2)),
+        pyrabind = measure_r(function() p_pb_1$dot(p_pb_2)),
+        pyrabind_cached = measure_r(function() p_pb_dot(p_pb_2)),
         raw_capi = measure_r(function() .Call(sym_point_dot, p_raw_1, p_raw_2)),
         pure_lang = measure_r(function() pure_dot(3.0, 4.0, -1.5, 2.5))
     ),
     dot_100k = list(
-        nanorbind_view = measure_r(function() nr_dot_view_fn(a, b)),
-        nanorbind_vec_copy = measure_r(function() nr_dot_vec_fn(a, b), min_iters = 5L),
+        pyrabind_view = measure_r(function() pb_dot_view_fn(a, b)),
+        pyrabind_vec_copy = measure_r(function() pb_dot_vec_fn(a, b), min_iters = 5L),
         raw_capi = measure_r(function() .Call(sym_dot_vec, a, b)),
         pure_lang = measure_r(function() sum(a * b))
     ),
     scale_100k = list(
-        nanorbind_ndarray = measure_r(function() nr_scale_nd_fn(a, 1.5, -2.0)),
-        nanorbind_vec_copy = measure_r(function() nr_scale_vec_fn(a, 1.5, -2.0), min_iters = 5L),
+        pyrabind_ndarray = measure_r(function() pb_scale_nd_fn(a, 1.5, -2.0)),
+        pyrabind_vec_copy = measure_r(function() pb_scale_vec_fn(a, 1.5, -2.0), min_iters = 5L),
         raw_capi = measure_r(function() .Call(sym_scale_vec, a, 1.5, -2.0)),
         pure_lang = measure_r(function() a * 1.5 - 2.0)
     ),
     mat_sum_256 = list(
-        nanorbind_view = measure_r(function() nr_mat_view_fn(mat)),
+        pyrabind_view = measure_r(function() pb_mat_view_fn(mat)),
         raw_capi = measure_r(function() .Call(sym_mat_sum, mat)),
         pure_lang = measure_r(function() sum(mat))
     ),
     df_transform_100k = list(
-        nanorbind = measure_r(function() nr_df_fn(df), min_iters = 2L, max_iters = 100L),
+        pyrabind = measure_r(function() pb_df_fn(df), min_iters = 2L, max_iters = 100L),
         raw_capi = measure_r(function() .Call(sym_df_transform, df), min_iters = 2L, max_iters = 200L),
         pure_lang = measure_r(
             function() {

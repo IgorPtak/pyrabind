@@ -1,6 +1,6 @@
 #include "internal.hpp"
 
-namespace nanorbind::r_detail {
+namespace pyrabind::r_detail {
 
 type_registry& type_registry::instance() {
     static type_registry reg;
@@ -16,14 +16,14 @@ void RRuntimeState::ensure_symbols() {
     if (initialized) {
         return;
     }
-    instance_tag = Rf_install("nanorbind_instance");
-    enum_tag = Rf_install("nanorbind_enum");
-    fn_tag = Rf_install("nanorbind_function");
-    cls_tag = Rf_install("nanorbind_class");
-    meth_tag = Rf_install("nanorbind_method");
-    prop_tag = Rf_install("nanorbind_property");
-    capsule_tag = Rf_install("nanorbind_capsule");
-    nr_attr_sym = Rf_install(".nr");
+    instance_tag = Rf_install("pyrabind_instance");
+    enum_tag = Rf_install("pyrabind_enum");
+    fn_tag = Rf_install("pyrabind_function");
+    cls_tag = Rf_install("pyrabind_class");
+    meth_tag = Rf_install("pyrabind_method");
+    prop_tag = Rf_install("pyrabind_property");
+    capsule_tag = Rf_install("pyrabind_capsule");
+    pb_attr_sym = Rf_install(".pb");
     stop_fn = Rf_findFun(Rf_install("stop"), R_BaseNamespace);
     keep_alive_pool = cpp11::sexp(R_NilValue);
     initialized = true;
@@ -34,20 +34,20 @@ namespace {
 const char* condition_class_name(error_kind kind) noexcept {
     switch (kind) {
     case error_kind::value:
-        return "nanorbind_value_error";
+        return "pyrabind_value_error";
     case error_kind::type:
-        return "nanorbind_type_error";
+        return "pyrabind_type_error";
     case error_kind::index:
-        return "nanorbind_index_error";
+        return "pyrabind_index_error";
     case error_kind::key:
-        return "nanorbind_key_error";
+        return "pyrabind_key_error";
     case error_kind::attribute:
-        return "nanorbind_attribute_error";
+        return "pyrabind_attribute_error";
     case error_kind::stop_iteration:
-        return "nanorbind_stop_iteration";
+        return "pyrabind_stop_iteration";
     case error_kind::runtime:
     default:
-        return "nanorbind_runtime_error";
+        return "pyrabind_runtime_error";
     }
 }
 
@@ -69,7 +69,7 @@ const char* condition_class_name(error_kind kind) noexcept {
 
     SEXP cls = PROTECT(Rf_allocVector(STRSXP, 4));
     SET_STRING_ELT(cls, 0, Rf_mkChar(condition_class_name(kind)));
-    SET_STRING_ELT(cls, 1, Rf_mkChar("nanorbind_error"));
+    SET_STRING_ELT(cls, 1, Rf_mkChar("pyrabind_error"));
     SET_STRING_ELT(cls, 2, Rf_mkChar("error"));
     SET_STRING_ELT(cls, 3, Rf_mkChar("condition"));
     Rf_setAttrib(cond, R_ClassSymbol, cls);
@@ -77,7 +77,7 @@ const char* condition_class_name(error_kind kind) noexcept {
     SEXP call = PROTECT(Rf_lang2(rt.stop_fn, cond));
     Rf_eval(call, R_BaseNamespace);
     UNPROTECT(5);
-    Rf_error("%s", msg != nullptr ? msg : "nanorbind error");
+    Rf_error("%s", msg != nullptr ? msg : "pyrabind error");
 }
 
 const RInstanceHolder* r_unwrap_instance(SEXP x) {
@@ -85,11 +85,11 @@ const RInstanceHolder* r_unwrap_instance(SEXP x) {
     rt.ensure_symbols();
     if (x == nullptr || x == R_NilValue || TYPEOF(x) != EXTPTRSXP ||
         R_ExternalPtrTag(x) != rt.instance_tag) {
-        throw type_error("expected a nanorbind C++ object");
+        throw type_error("expected a pyrabind C++ object");
     }
     const auto* holder = static_cast<const RInstanceHolder*>(R_ExternalPtrAddr(x));
     if (holder == nullptr || holder->box.ptr == nullptr || holder->cls == nullptr) {
-        throw type_error("invalid or finalized nanorbind C++ object");
+        throw type_error("invalid or finalized pyrabind C++ object");
     }
     return holder;
 }
@@ -99,11 +99,11 @@ const REnumHolder* r_unwrap_enum(SEXP x) {
     rt.ensure_symbols();
     if (x == nullptr || x == R_NilValue || TYPEOF(x) != EXTPTRSXP ||
         R_ExternalPtrTag(x) != rt.enum_tag) {
-        throw type_error("expected a nanorbind enum instance");
+        throw type_error("expected a pyrabind enum instance");
     }
     const auto* holder = static_cast<const REnumHolder*>(R_ExternalPtrAddr(x));
     if (holder == nullptr || holder->rec == nullptr) {
-        throw type_error("invalid or finalized nanorbind enum instance");
+        throw type_error("invalid or finalized pyrabind enum instance");
     }
     return holder;
 }
@@ -142,4 +142,4 @@ SEXP dispatch_overload_list(const std::vector<overload_record>& overloads, const
     throw type_error("incompatible arguments for '" + std::string(fn_name) + "'");
 }
 
-} // namespace nanorbind::r_detail
+} // namespace pyrabind::r_detail

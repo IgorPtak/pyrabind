@@ -1,4 +1,4 @@
-#include "nanorbind/dataframe_types.hpp"
+#include "pyrabind/dataframe_types.hpp"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -10,7 +10,7 @@
 #include <vector>
 
 int main() {
-    nanorbind::data_frame df;
+    pyrabind::data_frame df;
     assert(df.empty());
     df.add_column("id", std::vector<std::int64_t>{1, 2, 3});
     df.add_column("x", std::vector<double>{1.5, 2.5, 3.5});

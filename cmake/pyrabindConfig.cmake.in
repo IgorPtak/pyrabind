@@ -1,0 +1,29 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+if(@PYRABIND_BUILD_PYTHON@)
+    find_dependency(Python COMPONENTS Interpreter Development.Module)
+    if(NOT TARGET nanobind::nanobind)
+        execute_process(
+            COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
+            OUTPUT_VARIABLE _nanobind_cmake_dir
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(_nanobind_cmake_dir)
+            list(APPEND CMAKE_PREFIX_PATH "${_nanobind_cmake_dir}")
+        endif()
+    endif()
+    find_dependency(nanobind CONFIG)
+endif()
+
+if(@PYRABIND_BUILD_R@)
+    list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
+    find_dependency(R)
+    find_dependency(Cpp11)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/PyrabindTargets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/pyrabindTargets.cmake")
+
+check_required_components(pyrabind)

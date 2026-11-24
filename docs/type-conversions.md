@@ -11,7 +11,7 @@
 | C++ Type | Python Representation | R Representation | Notes |
 | :--- | :--- | :--- | :--- |
 | `bool` | `bool` | `logical(1)` (`LGLSXP`) | R `NA` fails conversion (`false`); in Pass 2 (`convert=true`), R `1L`/`0L` and finite `1.0`/`0.0` coerce to `bool` |
-| Signed integers (`int`, `int32_t`, `int64_t`) | `int` | `integer(1)` (`INTSXP`) or `numeric(1)` (`REALSXP`) | R inputs prefer `INTSXP` (`5L`) in Pass 1; outputs in `(NA_INTEGER, 2147483647]` return `integer(1)`, larger magnitudes return `double(1)` (exact up to $2^{53}$) |
+| Signed integers (`int`, `int32_t`, `int64_t`) | `int` | `integer(1)` (`INTSXP`) or `numeric(1)` (`REALSXP`) | R inputs prefer `INTSXP` (`5L`) in Pass 1; outputs in `(NA_INTEGER, 2147483647]` return `integer(1)`, larger magnitudes return `double(1)` (exact up to `2^53`) |
 | Unsigned integers (`uint32_t`, `uint64_t`) | `int` | `integer(1)` or `numeric(1)` | Rejects negative inputs; outputs `<= 2147483647` return `integer(1)`, larger return `double(1)` |
 | `float`, `double` | `float` | `numeric(1)` (`REALSXP`) | In Pass 2 (`convert=true`), R `integer`/`logical` scalars promote to `double` |
 | `std::string`, `std::string_view`, `const char*` | `str` (UTF-8) | `character(1)` (`STRSXP`, UTF-8) | R fast-path copies pure ASCII/UTF-8 bytes directly without `unwind_protect`; `NA_character_` (`NA_STRING`) fails conversion; `const char*` maps `None`/`NULL` <-> `nullptr` |
@@ -19,15 +19,18 @@
 
 ---
 
-## 2. STL Container & Utility Headers
+## 2. STL Container, Smart Pointer & Utility Headers
 
-Include `#include "pyrabind/stl.hpp"` to pull in all 14 STL headers below, or include individual headers under `pyrabind/stl/*.hpp`:
+Include `#include "pyrabind/stl.hpp"` to pull in all 19 caster headers below, or include individual headers under `pyrabind/stl/*.hpp` (plus the 2 opt-in opaque binding helpers `bind_vector.hpp` and `bind_map.hpp`):
 
 | Header | C++ Types | Python Host Type | R Host Type |
 | :--- | :--- | :--- | :--- |
 | `stl/string.hpp` | `std::string` | `str` | `character(1)` (built-in) |
 | `stl/string_view.hpp` | `std::string_view` | `str` | `character(1)` (built-in) |
+| `stl/complex.hpp` | `std::complex<T>` | `complex` | `complex(1)` (`CPLXSXP`, e.g., `1 + 2i`) |
+| `stl/chrono.hpp` | `std::chrono::duration`, `time_point` | `datetime.timedelta` / `datetime.datetime` | `difftime` (`"secs"`) / `POSIXct` (`"UTC"`) or `Date` |
 | `stl/vector.hpp` | `std::vector<T>` | `list` | Homogeneous **atomic vector** (`REALSXP`, `INTSXP`, `LGLSXP`, `STRSXP`), or `list` (`VECSXP`) for nested/object elements; memcpy fast-path for `vector<double>` |
+| `stl/list.hpp` | `std::list<T, Alloc>` | `list` | Homogeneous atomic vector or `list` |
 | `stl/array.hpp` | `std::array<T, N>` | `list` (exact length `N`) | Atomic vector / `list` of exact length `N` |
 | `stl/pair.hpp` | `std::pair<T1, T2>` | 2-tuple | 2-element R `list` (`VECSXP`) |
 | `stl/tuple.hpp` | `std::tuple<Ts...>` | `tuple` | Fixed-length R `list` (`VECSXP`) |
@@ -37,8 +40,14 @@ Include `#include "pyrabind/stl.hpp"` to pull in all 14 STL headers below, or in
 | `stl/unordered_set.hpp` | `std::unordered_set<T>` | `set` | Deduplicated vector / `list` |
 | `stl/map.hpp` | `std::map<K, V>` | `dict` | Named R `list` (`K` must be `std::string` on R) |
 | `stl/unordered_map.hpp` | `std::unordered_map<K, V>` | `dict` | Named R `list` (`K` must be `std::string` on R) |
+| `stl/shared_ptr.hpp` | `std::shared_ptr<T>` | Shared wrapper (`PyObject` / control block) | Shared `instance_box` holder refcount (`sp` mutations visible from R & C++) |
+| `stl/unique_ptr.hpp` | `std::unique_ptr<T>` | Ownership transfer + moved-from trap | `r_relinquish_unique_ptr` clears wrapper pointer; reused wrapper raises error |
 | `stl/filesystem.hpp` | `std::filesystem::path` | `pathlib.Path` / `str` | `character(1)` path string |
 | `stl/function.hpp` | `std::function<R(Args...)>` | Python callable / C++ fn wrapper | R `function` (`CLOSXP` / `BUILTINSXP`) / `pyrabind_function` |
+| `stl/bind_vector.hpp` | `nb::bind_vector<Vector>(...)` | Native sequence class | `pyrabind_object` container class (`append`, `[[`, `length`, `__iter__`, etc.) |
+| `stl/bind_map.hpp` | `nb::bind_map<Map>(...)` | Native mapping class | `pyrabind_object` map class (`keys`, `values`, `items`, `[[`, `[[<-`, etc.) |
+
+To avoid copying bound containers passed by reference (`Vec&` / `Map&`) when using `bind_vector` / `bind_map`, mark them with `PYRABIND_MAKE_OPAQUE(Type)` at global scope after `#include "pyrabind/stl.hpp"`.
 
 ---
 

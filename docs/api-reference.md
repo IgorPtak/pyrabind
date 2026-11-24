@@ -1,6 +1,6 @@
 # API Reference
 
-Every `pyrabind` binding translation unit includes [`pyrabind/pyrabind.hpp`](../include/pyrabind/pyrabind.hpp) (plus optional feature headers) and aliases `namespace nb = pyrabind;`. On Python builds, these declarations forward straight to `::nanobind`. On R builds, they bind cleanly to the `cpp11` runtime.
+Every `pyrabind` binding translation unit includes `pyrabind/pyrabind.hpp` (`include/pyrabind/pyrabind.hpp`, plus optional feature headers) and aliases `namespace nb = pyrabind;`. On Python builds, these declarations forward straight to `::nanobind`. On R builds, they bind cleanly to the `cpp11` runtime.
 
 ---
 
@@ -8,12 +8,15 @@ Every `pyrabind` binding translation unit includes [`pyrabind/pyrabind.hpp`](../
 
 | Header | Contents |
 | :--- | :--- |
-| `#include "pyrabind/pyrabind.hpp"` | `PYRABIND_MODULE`, `module_`, `class_`, `enum_`, `arg`, `literals` (`"_a"`), `init`, `new_`, `overload_cast`, `const_`, `rv_policy`, `keep_alive`, `capsule`, `none()`, exception helpers, `std::string`, `std::string_view` |
+| `#include "pyrabind/pyrabind.hpp"` | `PYRABIND_MODULE`, `PYRABIND_MAKE_OPAQUE`, `module_`, `class_`, `enum_`, `exception<T>`, `handle`, `type<T>()`, `arg`, `literals` (`"_a"`), `init`, `new_`, `overload_cast`, `const_`, `kw_only`, `call_guard`, `gil_scoped_acquire`/`_release`, `rv_policy`, `keep_alive`, `capsule`, `none()`, built-in exception factories, `std::string`, `std::string_view` |
+| `#include "pyrabind/make_iterator.hpp"` | `make_iterator`, `make_key_iterator`, `make_value_iterator` |
 | `#include "pyrabind/ndarray.hpp"` | `ndarray`, `ndim<N>`, `shape<...>`, `c_contig`, `f_contig`, `any_contig`, `numpy`, `pytorch`, `no_framework`, `ro`, `device::cpu` |
 | `#include "pyrabind/dataframe.hpp"` | `data_frame`, `column_data`, and host casters for `pandas.DataFrame` / `dict` (Python) and `data.frame` / `tibble` (R) |
 | `#include "pyrabind/dataframe_types.hpp"` | Backend-free `pyrabind::column_data` and `pyrabind::data_frame` definitions (usable with `PYRABIND_CORE_ONLY`) |
-| `#include "pyrabind/operators.hpp"` | `nb::self` operator expression templates |
-| `#include "pyrabind/stl.hpp"` | Convenience header including all 14 `pyrabind/stl/*.hpp` casters |
+| `#include "pyrabind/operators.hpp"` | `nb::self`, `nb::abs`, `nb::hash`, and operator expression templates |
+| `#include "pyrabind/stl.hpp"` | Convenience header including all 19 STL/smart-pointer/chrono/complex/callback casters (`pyrabind/stl/*.hpp`) |
+| `#include "pyrabind/stl/bind_vector.hpp"` | Opt-in opaque binding helper `nb::bind_vector<Vector>(scope, name, ...)` |
+| `#include "pyrabind/stl/bind_map.hpp"` | Opt-in opaque binding helper `nb::bind_map<Map>(scope, name, ...)` |
 
 ---
 
@@ -60,7 +63,20 @@ Supported extra annotations passed to `.def(...)`:
 - **`.noconvert()`**: Disallows implicit conversion (Pass 2 coercion) for this argument, e.g., `"x"_a.noconvert()`.
 - **`.none()`**: Allows `None` / `NULL` for pointer arguments (`T*` receives `nullptr`).
 - **`"docstring"`**: Plain C-string (`const char*`) stored as documentation metadata.
-- **Overload & tag markers**: `nb::rv_policy`, `nb::keep_alive<Nurse, Patient>`, `nb::is_method()`, `nb::is_operator()`, `nb::is_implicit()`, `nb::is_arithmetic()`, `nb::kw_only()`.
+- **Overload & tag markers**: `nb::rv_policy`, `nb::keep_alive<Nurse, Patient>`, `nb::kw_only()`, `nb::call_guard<Guards...>()` (including `nb::gil_scoped_release` / `nb::gil_scoped_acquire`), `nb::is_method()`, `nb::is_operator()`, `nb::is_implicit()`, `nb::is_arithmetic()`.
+
+### Keyword-Only Arguments & Call Guards
+
+```cpp
+m.def("kw_combine", [](int a, int b, int c) { return a * 100 + b * 10 + c; },
+      "a"_a, nb::kw_only(), "b"_a, "c"_a = 5);
+
+m.def("guarded_work", &work, "x"_a,
+      nb::call_guard<nb::gil_scoped_release, CustomGuard>());
+```
+
+- Any argument after `nb::kw_only()` must be passed by keyword (`kw_combine(1, b=2)` works; `kw_combine(1, 2)` fails overload matching on both Python and R).
+- `nb::call_guard<Guards...>()` constructs each guard on entry and destroys it on exit; `nb::gil_scoped_release` and `nb::gil_scoped_acquire` compile cleanly as zero-cost no-ops on the single-threaded R target while releasing/acquiring the GIL on Python.
 
 ### Two-Pass Overload Resolution
 
@@ -131,17 +147,20 @@ nb::class_<Dog, Animal>(m, "Dog")
 - **Constructors & Factories**:
   - `.def(nb::init<Args...>())` binds a C++ constructor.
   - `.def(nb::new_(&factory_fn))` binds a factory callable returning an instance by value or pointer.
-- **Methods & Static Methods**:
+- **Methods, Static Methods & Type Handles**:
   - `.def("name", &Class::method, ...)` binds member functions or free/lambda adapters taking `Class&` / `const Class&` as the first parameter.
   - `.def_static("name", &fn, ...)` binds static methods callable as `Class.name(...)` in Python and `Class$name(...)` in R.
-- **Fields & Properties**:
+  - `nb::handle` and `nb::type<T>()` provide generic handle interoperability (including `module_::operator handle()` and static property callbacks).
+- **Instance & Static Fields / Properties**:
   - `.def_ro("x", &Class::x)` and `.def_rw("x", &Class::x)` expose public C++ fields (also inherited from base class members).
   - `.def_prop_ro("norm", &Class::norm)` exposes a read-only getter property (`obj.norm` / `obj$norm`).
   - `.def_prop_rw("val", &Class::get_val, &Class::set_val)` exposes a read/write property (`obj.val = v` / `obj$val <- v`).
+  - `.def_ro_static("CONST", &Class::kConst)` and `.def_rw_static("mut", &Class::mut)` expose static C++ variables directly on the bound class (`Cls.CONST` / `Cls$CONST`).
+  - `.def_prop_ro_static("calc", [](nb::handle) { ... })` and `.def_prop_rw_static("prop", [](nb::handle) { ... }, [](nb::handle, T v) { ... })` take `nb::handle` as the first parameter for upstream `nanobind` compatibility and work identically on Python (`Cls.prop = v`) and R (`Cls$prop <- v`).
 
 ---
 
-## 4. Special Methods & Operators
+## 4. Special Methods, Iterators, Containers & Operators
 
 ### Special Dunder Methods
 
@@ -152,6 +171,51 @@ nb::class_<Dog, Animal>(m, "Dog")
 | `.def("__getitem__", &T::get)` | `obj[idx]` | `obj[[idx]]` | Key/index is forwarded unchanged (0-based C++ unless adjusted) |
 | `.def("__setitem__", &T::set)` | `obj[idx] = val` | `obj[[idx]] <- val` | Mutates C++ object in place via external pointer |
 | `.def("__contains__", &T::contains)` | `val in obj` | `` obj$`__contains__`(val) `` | Base R does not dispatch `%in%` over S3 objects |
+| `.def("__iter__", ...)` | `iter(obj)` / `for x in obj` | `` obj$`__iter__`() `` / `as.list(it)` | Returns a `pyrabind_iterator` in R supporting `$__next__()` |
+
+### Iterators (`pyrabind/make_iterator.hpp`)
+
+```cpp
+#include "pyrabind/make_iterator.hpp"
+
+nb::class_<NumberBag>(m, "NumberBag")
+    .def("__iter__", [](const NumberBag& b) {
+        return nb::make_iterator(nb::type<NumberBag>(), "ValIter", b.vals);
+    }, nb::keep_alive<0, 1>())
+    .def("keys", [](const NumberBag& b) {
+        return nb::make_key_iterator(nb::type<NumberBag>(), "KeyIter", b.kv.begin(), b.kv.end());
+    }, nb::keep_alive<0, 1>())
+    .def("values", [](const NumberBag& b) {
+        return nb::make_value_iterator(nb::type<NumberBag>(), "MapValIter", b.kv.begin(), b.kv.end());
+    }, nb::keep_alive<0, 1>())
+    .def("items", [](const NumberBag& b) {
+        return nb::make_iterator(nb::type<NumberBag>(), "ItemIter", b.kv.begin(), b.kv.end());
+    }, nb::keep_alive<0, 1>());
+```
+
+In Python, consume directly with `list(bag)` / `for`. In R, materialize via `as.list(bag$keys())` or step manually with `` it <- bag$keys(); it$`__next__`() `` until `pyrabind_stop_iteration` is raised.
+
+### Opaque Containers (`PYRABIND_MAKE_OPAQUE`, `bind_vector`, `bind_map`)
+
+Declare `PYRABIND_MAKE_OPAQUE(VecType)` / `PYRABIND_MAKE_OPAQUE(MapType)` at global scope after `#include "pyrabind/stl.hpp"` and before binding functions, then bind container methods directly with zero copy-on-call overhead:
+
+```cpp
+#include "pyrabind/pyrabind.hpp"
+#include "pyrabind/stl.hpp"
+#include "pyrabind/stl/bind_vector.hpp"
+#include "pyrabind/stl/bind_map.hpp"
+
+using OpaqueVec = std::vector<Item>;
+using OpaqueMap = std::map<std::string, Item>;
+
+PYRABIND_MAKE_OPAQUE(OpaqueVec)
+PYRABIND_MAKE_OPAQUE(OpaqueMap)
+
+PYRABIND_MODULE(mod, m) {
+    nb::bind_vector<OpaqueVec>(m, "OpaqueVec");
+    nb::bind_map<OpaqueMap>(m, "OpaqueMap");
+}
+```
 
 ### Operators (`pyrabind/operators.hpp`)
 
@@ -174,11 +238,12 @@ nb::class_<Vec2>(m, "Vec2")
 ```
 
 Supported dual-target operators in `pyrabind/operators.hpp`:
-- **Unary**: `-nb::self` (`__neg__`)
-- **Binary arithmetic** (both `nb::self op T`, `T op nb::self`, and `nb::self op nb::self`): `+`, `-`, `*`, `/` (truediv)
+- **Unary**: `-nb::self` (`__neg__`), `+nb::self` (`__pos__`), `~nb::self` (`__invert__`), `!nb::self` (`__bool__`), `nb::abs(nb::self)` (`__abs__`), `nb::hash(nb::self)` (`__hash__`)
+- **Binary** (`nb::self op T`, `T op nb::self`, `nb::self op nb::self`): `+`, `-`, `*`, `/` (truediv), `%`, `<<`, `>>`, `&`, `^`, `|`
+- **In-place**: `+=`, `-=`, `*=`, `/=`, `%=`, `<<=`, `>>=`, `&=`, `^=`, `|=`
 - **Comparisons**: `==`, `!=`, `<`, `<=`, `>`, `>=`
 
-In R, operators dispatch through `Ops.pyrabind_object` with right-hand fallback (`__radd__`, `__rsub__`, `__rmul__`, `__rtruediv__`) and flipped comparison symmetry (`<` <-> `>`, `<=` <-> `>=`), enabling expressions like `2.0 * a + b` natively in R.
+In R, `Ops.pyrabind_object` and `abs.pyrabind_object` dispatch unary `+`, `-`, `!`, `abs(x)` and binary `+`, `-`, `*`, `/`, `%%`, `&`, `|`, `==`, `!=`, `<`, `<=`, `>`, `>=` with right-hand (`__radd__`, etc.) and flipped comparison symmetry; bitwise shifts, `^`, `~`, in-place (`__iadd__`, etc.), and `__hash__` are called directly via `` obj$`__iadd__`(other) ``.
 
 ---
 
@@ -264,3 +329,23 @@ tryCatch(
     pyrabind_value_error = function(e) message("Caught value error: ", e$message)
 )
 ```
+
+### Custom Exceptions (`nb::exception<T>`)
+
+Register domain-specific C++ exceptions (deriving from `std::exception`) with `nb::exception<T>(m, "Name")`:
+
+```cpp
+struct CustomDomainError : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
+PYRABIND_MODULE(mod, m) {
+    nb::exception<CustomDomainError>(m, "CustomDomainError");
+    m.def("fail_domain", [](const std::string& msg) -> int {
+        throw CustomDomainError(msg);
+    });
+}
+```
+
+- **Python**: Raises `mod.CustomDomainError` (subclass of `Exception`), catchable via `except mod.CustomDomainError:`.
+- **R**: Emits an S3 condition hierarchy starting with `CustomDomainError` (and `pyrabind_runtime_error` / `error` / `condition`), catchable directly via `tryCatch(..., CustomDomainError = function(e) ...)`.

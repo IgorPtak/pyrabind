@@ -2,8 +2,8 @@
 
 `pyrabind` provides two complementary high-throughput interfaces for numerical computing and tabular workflows:
 
-- **[`pyrabind/ndarray.hpp`](../include/pyrabind/ndarray.hpp)**: Zero-copy strided views (`nb::ndarray<...>`) over NumPy arrays and R vectors/matrices, plus ownership-transferred return arrays via `nb::capsule`.
-- **[`pyrabind/dataframe.hpp`](../include/pyrabind/dataframe.hpp)**: Typed columnar tables (`nb::data_frame`) converting between `pandas.DataFrame` / Python `dict` and R `data.frame` / `tibble`.
+- **`pyrabind/ndarray.hpp`** (`include/pyrabind/ndarray.hpp`): Zero-copy strided views (`nb::ndarray<...>`) over NumPy arrays and R vectors/matrices, plus ownership-transferred return arrays via `nb::capsule`.
+- **`pyrabind/dataframe.hpp`** (`include/pyrabind/dataframe.hpp`): Typed columnar tables (`nb::data_frame`) converting between `pandas.DataFrame` / Python `dict` and R `data.frame` / `tibble`.
 
 ---
 
@@ -107,7 +107,7 @@ nb::ndarray<nb::numpy, double, nb::ndim<2>> nd_make_2d(std::size_t rows, std::si
 
 ### C++ Structure
 
-Defined in [`include/pyrabind/dataframe_types.hpp`](../include/pyrabind/dataframe_types.hpp):
+Defined in `include/pyrabind/dataframe_types.hpp`:
 
 ```cpp
 using column_data = std::variant<

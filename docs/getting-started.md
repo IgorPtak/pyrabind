@@ -25,7 +25,7 @@ This guide covers toolchain requirements, CMake presets and options, building ex
 
 ### Using CMake Presets
 
-Two Ninja presets are configured in [`CMakePresets.json`](../CMakePresets.json):
+Two Ninja presets are configured in `CMakePresets.json`:
 
 ```bash
 # Release build (-O3 -DNDEBUG)
@@ -51,7 +51,7 @@ cmake -S . -B build-release -G Ninja \
 cmake --build build-release -j
 ```
 
-*(Note: if `Python3_EXECUTABLE` is passed without `Python_EXECUTABLE`, [`CMakeLists.txt`](../CMakeLists.txt) automatically forwards `Python3_EXECUTABLE` to `Python_EXECUTABLE`.)*
+*(Note: if `Python3_EXECUTABLE` is passed without `Python_EXECUTABLE`, `CMakeLists.txt` automatically forwards `Python3_EXECUTABLE` to `Python_EXECUTABLE`.)*
 
 ### CMake Configuration Options
 
@@ -107,7 +107,7 @@ pyrabind_add_module(my_ext
 
 ### `pyrabind_add_module(...)` Signature
 
-Defined in [`cmake/PyrabindTargets.cmake`](../cmake/PyrabindTargets.cmake):
+Defined in `cmake/PyrabindTargets.cmake`:
 
 ```cmake
 pyrabind_add_module(<name>
@@ -142,7 +142,7 @@ import geometry
 
 ### R
 
-Source [`r/pyrabind.R`](../r/pyrabind.R) (or `<prefix>/share/pyrabind/pyrabind.R`) once and call `pyrabind_load(path)` with the path to the compiled R shared library:
+Source `r/pyrabind.R` (or `<prefix>/share/pyrabind/pyrabind.R`) once and call `pyrabind_load(path)` with the path to the compiled R shared library:
 
 ```bash
 Rscript examples/geometry/run_r.R r/pyrabind.R build-release/examples/geometry/r/geometry.so
@@ -165,4 +165,18 @@ If you want to unit-test backend-independent `pyrabind::data_frame` code or C++ 
 add_executable(my_core_tests test_core.cpp)
 target_link_libraries(my_core_tests PRIVATE pyrabind::core)
 target_compile_definitions(my_core_tests PRIVATE PYRABIND_CORE_ONLY)
+```
+
+---
+
+## 6. Building & Previewing the Documentation Site (MkDocs)
+
+`pyrabind` ships an **MkDocs Material** site configured in `mkdocs.yml`. To preview locally or run the strict documentation build check:
+
+```bash
+pip install -r docs/requirements.txt
+mkdocs serve
+
+# Strict build verification (matching GitHub Actions CI & Pages deploy):
+mkdocs build --strict
 ```

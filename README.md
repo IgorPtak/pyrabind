@@ -1,4 +1,13 @@
-# pyrabind
+<p align="center">
+  <img src="docs/assets/logo.png" alt="pyrabind logo — Poznan potato (pyra) embracing Python and R" width="180">
+</p>
+
+<h1 align="center">pyrabind</h1>
+
+<p align="center">
+  Write one <strong>C++20</strong> <code>nanobind</code>-style binding module — compile simultaneously for <strong>Python 3</strong> and <strong>R 4</strong>.<br>
+  <em>Named after <strong>pyra</strong>, the Poznan dialect word for potato — plus <strong>Py</strong>thon + <strong>R</strong> + <strong>bind</strong>.</em>
+</p>
 
 `pyrabind` is a **C++20** dual-target binding library that lets you write **one binding definition** in authentic **`nanobind`** syntax (with zero target `#ifdef`s) and compile it simultaneously into:
 
@@ -9,7 +18,7 @@
 
 ## Why `pyrabind`?
 
-- **One source of truth**: Expose C++ functions, classes, single inheritance, overloaded methods, operators, enums, STL containers, callbacks, `ndarray` views, and `data_frame` tables to both Python and R from a single `PYRABIND_MODULE` file.
+- **One source of truth**: Expose C++ functions, keyword-only args (`nb::kw_only`), call guards (`nb::call_guard` / `gil_scoped_release`), classes, single inheritance, static properties, overloaded methods, full arithmetic/bitwise/comparison operators, enums, custom C++ exceptions (`nb::exception<T>`), smart pointers (`shared_ptr`, `unique_ptr`), `std::complex`, `std::chrono`, `std::list`, STL containers, iterators (`make_iterator`), opaque container bindings (`PYRABIND_MAKE_OPAQUE`, `bind_vector`, `bind_map`), callbacks, `ndarray` views, and `data_frame` tables to both Python and R from a single `PYRABIND_MODULE` file.
 - **Zero-overhead Python backend**: `pyrabind` compiles straight down to upstream `nanobind` on Python (`0.96x–1.05x` of raw `nanobind` dispatch and numerical workloads in `-O3` benchmarks).
 - **High-performance safe R backend**: R calls enter through `.External` with stack-allocated `call_args` (avoiding per-call R list allocation), pre-hashed class method/property environments, `cpp11::unwind_protect`, and structured S3 conditions (`pyrabind_*_error`).
 - **NumPy / pandas & base R ready**: Zero-copy strided `nb::ndarray` views over NumPy buffers and R vectors/matrices, ownership transfer via `nb::capsule`, and built-in `nb::data_frame` casters for `pandas.DataFrame` / `dict` and R `data.frame` / `tibble`.
@@ -108,11 +117,12 @@ print(geo$array_dot(c(1.0, 2.0, 3.0), c(4.0, 5.0, 6.0)))
 
 | Header | Python Backend (`nanobind`) | R Backend (`cpp11` + `.External`) |
 | :--- | :--- | :--- |
-| `pyrabind/pyrabind.hpp` | `<nanobind/nanobind.h>` + `string.h` + `string_view.h` | `module_`, `class_`, `enum_`, `PYRABIND_MODULE`, S3 registry |
+| `pyrabind/pyrabind.hpp` | `<nanobind/nanobind.h>` + `string.h` + `string_view.h` | `module_`, `class_`, `enum_`, `exception<T>`, `PYRABIND_MAKE_OPAQUE`, `PYRABIND_MODULE`, S3 registry |
+| `pyrabind/make_iterator.hpp` | `<nanobind/make_iterator.h>` | `make_iterator`, `make_key_iterator`, `make_value_iterator`, `pyrabind_iterator` S3 class |
 | `pyrabind/ndarray.hpp` | `<nanobind/ndarray.h>` (NumPy/DLPack) | Zero-copy R vectors/matrices + `capsule` return |
 | `pyrabind/dataframe.hpp` | `pandas.DataFrame` / `dict` caster | Native `data.frame` / `tibble` caster |
-| `pyrabind/operators.hpp` | `<nanobind/operators.h>` | `nb::self` expression templates & `Ops` S3 dispatch |
-| `pyrabind/stl.hpp` & `pyrabind/stl/*.hpp` | `<nanobind/stl/*.h>` | R atomic/list/functional casters |
+| `pyrabind/operators.hpp` | `<nanobind/operators.h>` | `nb::self` expression templates (`+ - * / %% & \| unary + - ! ~ abs hash`) & `Ops` S3 dispatch |
+| `pyrabind/stl.hpp` & `pyrabind/stl/*.hpp` | `<nanobind/stl/*.h>` | 21 STL/smart-pointer/chrono/complex/container headers (`bind_vector`, `bind_map`, atomic/list/functional casters) |
 
 ---
 
@@ -148,10 +158,17 @@ cmake --install build-release --prefix /tmp/pyrabind_install
 ## Documentation
 
 - [Documentation Home](docs/index.md) — guide map and Python/R feature-parity matrix
-- [Getting Started & Build Guide](docs/getting-started.md) — prerequisites, CMake options, installing, external projects
-- [API Reference](docs/api-reference.md) — functions, classes, inheritance, properties, operators, enums, lifetimes, exceptions
-- [Type Conversions & Python/R Semantics](docs/type-conversions.md) — scalars, all 14 STL headers, callbacks, portability differences
+- [Getting Started & Build Guide](docs/getting-started.md) — prerequisites, CMake options, installing, external projects, MkDocs preview
+- [API Reference](docs/api-reference.md) — functions, `kw_only`, `call_guard`, classes, inheritance, static/instance properties, operators, iterators, `bind_vector`/`bind_map`, enums, lifetimes, custom exceptions
+- [Type Conversions & Python/R Semantics](docs/type-conversions.md) — scalars, all 21 STL/container/smart-pointer headers (`stl.hpp` + `bind_vector`/`bind_map`), `complex`, `chrono`, callbacks, portability differences
 - [NumPy, `ndarray`, Matrices & `data_frame`](docs/ndarray-and-dataframes.md) — zero-copy arrays, column-major R layout, DataFrames
 - [Architecture Deep Dive](docs/architecture.md) — Python pass-through and R `cpp11` / `.External` / hashed-environment internals
 - [Overhead & Data-Science Benchmarks](docs/benchmarks.md) — full Release `-O3` benchmark results
 - [Agent Guidelines](AGENTS.md), [R Backend Invariants](include/pyrabind/r/AGENTS.md), and [Contributing Guide](CONTRIBUTING.md)
+
+Preview the documentation site locally with MkDocs Material:
+
+```bash
+pip install -r docs/requirements.txt
+mkdocs serve
+```

@@ -11,7 +11,7 @@ function(nanorbind_apply_strict_warnings target_name)
 endfunction()
 
 function(nanorbind_add_module name)
-    cmake_parse_arguments(ARG "" "OUTPUT_DIR" "SOURCES;LINK_LIBRARIES" ${ARGN})
+    cmake_parse_arguments(ARG "NOMINSIZE" "OUTPUT_DIR" "SOURCES;LINK_LIBRARIES" ${ARGN})
 
     if(NOT ARG_SOURCES)
         message(FATAL_ERROR "nanorbind_add_module(${name}): SOURCES is required")
@@ -24,7 +24,11 @@ function(nanorbind_add_module name)
     endif()
 
     if(NANORBIND_BUILD_PYTHON)
-        nanobind_add_module(${name}_py NB_STATIC ${ARG_SOURCES})
+        set(_nb_flags NB_STATIC)
+        if(ARG_NOMINSIZE)
+            list(APPEND _nb_flags NOMINSIZE)
+        endif()
+        nanobind_add_module(${name}_py ${_nb_flags} ${ARG_SOURCES})
         set_target_properties(${name}_py PROPERTIES
             OUTPUT_NAME "${name}"
             LIBRARY_OUTPUT_DIRECTORY "${_out_dir}/python"

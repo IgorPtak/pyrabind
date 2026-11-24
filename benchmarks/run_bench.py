@@ -152,11 +152,13 @@ def main() -> int:
     assert math.isclose(raw_py.dot_view(a, b), expected_dot, rel_tol=1e-12)
     assert math.isclose(nr.dot_view(a[::2], b[::2]), float(np.dot(a[::2], b[::2])), rel_tol=1e-12)
     assert math.isclose(nr.dot_vec(a_list, b_list), expected_dot, rel_tol=1e-12)
+    assert math.isclose(raw_nb.dot_vec(a_list, b_list), expected_dot, rel_tol=1e-12)
 
     benches["dot_100k"] = {
         "nanorbind_view": measure(lambda: nr.dot_view(a, b)),
         "raw_nanobind": measure(lambda: raw_nb.dot_view(a, b)),
         "nanorbind_vec_copy": measure(lambda: nr.dot_vec(a_list, b_list), min_iters=5),
+        "raw_nb_vec_copy": measure(lambda: raw_nb.dot_vec(a_list, b_list), min_iters=5),
         "raw_capi": measure(lambda: raw_py.dot_view(a, b)),
         "pure_lang": measure(lambda: float(np.dot(a, b))),
     }
@@ -166,11 +168,13 @@ def main() -> int:
     assert np.allclose(raw_nb.scale_ndarray(a, 1.5, -2.0), expected_scale)
     assert np.allclose(raw_py.scale_ndarray(a, 1.5, -2.0), expected_scale)
     assert np.allclose(nr.scale_vec(a_list, 1.5, -2.0), expected_scale)
+    assert np.allclose(raw_nb.scale_vec(a_list, 1.5, -2.0), expected_scale)
 
     benches["scale_100k"] = {
         "nanorbind_ndarray": measure(lambda: nr.scale_ndarray(a, 1.5, -2.0)),
         "raw_nanobind": measure(lambda: raw_nb.scale_ndarray(a, 1.5, -2.0)),
         "nanorbind_vec_copy": measure(lambda: nr.scale_vec(a_list, 1.5, -2.0), min_iters=5),
+        "raw_nb_vec_copy": measure(lambda: raw_nb.scale_vec(a_list, 1.5, -2.0), min_iters=5),
         "raw_capi": measure(lambda: raw_py.scale_ndarray(a, 1.5, -2.0)),
         "pure_lang": measure(lambda: a * 1.5 - 2.0),
     }
@@ -197,9 +201,12 @@ def main() -> int:
         }
     )
     out_nr = nr.df_transform(df)
+    out_nb = raw_nb.df_transform(df)
     out_raw = raw_py.df_transform(df)
     assert list(out_nr.columns) == ["id", "x", "y", "tag"]
+    assert list(out_nb.columns) == ["id", "x", "y", "tag"]
     assert len(out_nr) == n
+    assert np.allclose(out_nr["y"].to_numpy(), out_nb["y"].to_numpy())
     assert np.allclose(out_nr["y"].to_numpy(), out_raw["y"].to_numpy())
 
     def pure_pandas_transform() -> Any:
@@ -214,6 +221,7 @@ def main() -> int:
 
     benches["df_transform_100k"] = {
         "nanorbind": measure(lambda: nr.df_transform(df), min_iters=2, max_iters=200),
+        "raw_nanobind": measure(lambda: raw_nb.df_transform(df), min_iters=2, max_iters=200),
         "raw_capi": measure(lambda: raw_py.df_transform(df), min_iters=2, max_iters=200),
         "pure_lang": measure(pure_pandas_transform, min_iters=2, max_iters=200),
     }

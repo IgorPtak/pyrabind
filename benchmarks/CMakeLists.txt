@@ -6,10 +6,10 @@ set_target_properties(nanorbind_bench_cpp PROPERTIES
 )
 nanorbind_apply_strict_warnings(nanorbind_bench_cpp)
 
-nanorbind_add_module(bench_module SOURCES bench_module.cpp)
+nanorbind_add_module(bench_module NOMINSIZE SOURCES bench_module.cpp)
 
 if(NANORBIND_BUILD_PYTHON)
-    nanobind_add_module(raw_nb_bench NB_STATIC raw_nb_baseline.cpp)
+    nanobind_add_module(raw_nb_bench NB_STATIC NOMINSIZE raw_nb_baseline.cpp)
     set_target_properties(raw_nb_bench PROPERTIES
         OUTPUT_NAME "raw_nb_bench"
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/python"

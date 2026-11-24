@@ -121,11 +121,11 @@ def main() -> int:
 
     print("\n### Array, Matrix & DataFrame Workloads (median latency)\n")
     print(
-        "| Workload | C++ `-O3` | Python `nanorbind` (zero-copy) | Raw `nanobind` | "
-        "Python `std::vector` copy | Python raw C-API | Pure NumPy/pandas | "
+        "| Workload | C++ `-O3` | Python `nanorbind` (zero-copy) | Raw `nanobind` | `nanorbind`/`nb` | "
+        "Python `std::vector` copy (`nr` / `nb`) | Python raw C-API | Pure NumPy/pandas | "
         "R `nanorbind` (zero-copy) | R `std::vector` copy | R raw `.Call` | Pure base R |"
     )
-    print("| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    print("| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
 
     def row_array(key: str, py_zc: str, py_cp: str | None, r_zc: str, r_cp: str | None) -> None:
         c_ns = cpp_res[key]["median_ns"]
@@ -134,6 +134,12 @@ def main() -> int:
         py_zc_v = py_b.get(py_zc, {}).get("median_ns")
         py_nb_v = py_b.get("raw_nanobind", {}).get("median_ns")
         py_cp_v = py_b.get(py_cp, {}).get("median_ns") if py_cp else None
+        nb_cp_v = py_b.get("raw_nb_vec_copy", {}).get("median_ns") if py_cp else None
+        cp_str = (
+            f"{fmt_ns(py_cp_v)} / {fmt_ns(nb_cp_v)}"
+            if py_cp_v is not None and nb_cp_v is not None
+            else fmt_ns(py_cp_v)
+        )
         py_raw_v = py_b.get("raw_capi", {}).get("median_ns")
         py_pure_v = py_b.get("pure_lang", {}).get("median_ns")
         r_zc_v = r_b.get(r_zc, {}).get("median_ns")
@@ -142,8 +148,9 @@ def main() -> int:
         r_pure_v = r_b.get("pure_lang", {}).get("median_ns")
         print(
             f"| `{key}` | {fmt_ns(c_ns)} | {fmt_ns(py_zc_v)} | {fmt_ns(py_nb_v)} | "
-            f"{fmt_ns(py_cp_v)} | {fmt_ns(py_raw_v)} | {fmt_ns(py_pure_v)} | "
-            f"{fmt_ns(r_zc_v)} | {fmt_ns(r_cp_v)} | {fmt_ns(r_raw_v)} | {fmt_ns(r_pure_v)} |"
+            f"{fmt_ratio(py_zc_v, py_nb_v)} | {cp_str} | {fmt_ns(py_raw_v)} | "
+            f"{fmt_ns(py_pure_v)} | {fmt_ns(r_zc_v)} | {fmt_ns(r_cp_v)} | "
+            f"{fmt_ns(r_raw_v)} | {fmt_ns(r_pure_v)} |"
         )
 
     row_array("dot_100k", "nanorbind_view", "nanorbind_vec_copy", "nanorbind_view", "nanorbind_vec_copy")

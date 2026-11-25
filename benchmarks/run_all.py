@@ -163,6 +163,7 @@ def main() -> int:
     )
     row_array("mat_sum_256", "pyrabind_view", None, "pyrabind_view", None)
     row_array("df_transform_100k", "pyrabind", None, "pyrabind", None)
+    row_array("arrow_transform_100k", "pyrabind", None, "pyrabind", None)
     return 0
 
 

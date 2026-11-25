@@ -226,6 +226,38 @@ def main() -> int:
         "pure_lang": measure(pure_pandas_transform, min_iters=2, max_iters=200),
     }
 
+    try:
+        import pyarrow as pa
+    except ImportError:
+        pa = None
+
+    if pa is not None:
+        rb = pa.RecordBatch.from_pandas(df, preserve_index=False)
+        rb_pb = pa.record_batch(pb.arrow_transform(rb))
+        rb_nb = pa.record_batch(raw_nb.arrow_transform(rb))
+        assert rb_pb.schema.names == ["id", "x", "y", "tag"]
+        assert rb_nb.schema.names == ["id", "x", "y", "tag"]
+        assert rb_pb.num_rows == n
+        assert np.allclose(rb_pb.column("y").to_numpy(), rb_nb.column("y").to_numpy())
+        assert rb_pb.column("tag").equals(rb.column("tag"))
+
+        def pure_pyarrow_transform() -> Any:
+            y_arr = rb.column("x").to_numpy(zero_copy_only=False) * 2.0 + rb.column("id").to_numpy(
+                zero_copy_only=False
+            )
+            return pa.RecordBatch.from_arrays(
+                [rb.column(0), rb.column(1), pa.array(y_arr), rb.column(2)],
+                names=["id", "x", "y", "tag"],
+            )
+
+        benches["arrow_transform_100k"] = {
+            "pyrabind": measure(lambda: pa.record_batch(pb.arrow_transform(rb)), min_iters=5, max_iters=2000),
+            "raw_nanobind": measure(
+                lambda: pa.record_batch(raw_nb.arrow_transform(rb)), min_iters=5, max_iters=2000
+            ),
+            "pure_lang": measure(pure_pyarrow_transform, min_iters=5, max_iters=2000),
+        }
+
     print(json.dumps(results, indent=2))
     return 0
 

@@ -1,4 +1,5 @@
 #include "bench_kernels.hpp"
+#include "pyrabind/arrow.hpp"
 #include "pyrabind/dataframe_types.hpp"
 
 #include <algorithm>
@@ -80,6 +81,17 @@ BENCH_NOINLINE pyrabind::data_frame cpp_df_transform(const pyrabind::data_frame&
     return out;
 }
 
+BENCH_NOINLINE pyrabind::arrow_batch cpp_arrow_transform(const pyrabind::arrow_batch_view& rb) {
+    auto sid = rb.column_span<std::int64_t>("id");
+    auto sx = rb.column_span<double>("x");
+    const std::size_t n = rb.nrows();
+    std::vector<double> y_vec(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        y_vec[i] = sx[i] * 2.0 + static_cast<double>(sid[i]);
+    }
+    return rb.insert_column(2, "y", std::move(y_vec));
+}
+
 struct BenchStats {
     std::string name;
     int inner_iters = 1;
@@ -153,6 +165,8 @@ int main() {
     df.add_column("id", std::move(df_id));
     df.add_column("x", std::move(df_x));
     df.add_column("tag", std::move(df_tag));
+    pyrabind::arrow_batch rb_in = pyrabind::export_to_arrow(df);
+    auto rb_view = rb_in.view();
 
     BenchPoint p1(3.0, 4.0);
     BenchPoint p2(-1.5, 2.5);
@@ -191,6 +205,10 @@ int main() {
     results.push_back(measure("df_transform_100k", 10, 15, [&]() {
         auto out = cpp_df_transform(df);
         do_not_optimize(out.nrows());
+    }));
+    results.push_back(measure("arrow_transform_100k", 100, 19, [&]() {
+        auto out = cpp_arrow_transform(rb_view);
+        do_not_optimize(out.array.length);
     }));
 
     std::cout << std::fixed << std::setprecision(2) << "{\n";

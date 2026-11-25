@@ -1,4 +1,5 @@
 #include "bench_kernels.hpp"
+#include "pyrabind/arrow.hpp"
 #include "pyrabind/dataframe.hpp"
 #include "pyrabind/pyrabind.hpp"
 #include "pyrabind/ndarray.hpp"
@@ -93,13 +94,14 @@ double mat_sum_view(nb::ndarray<const double, nb::ndim<2>> m) {
     return acc;
 }
 
-nb::data_frame df_transform(const nb::data_frame& df) {
-    const auto& id_col = df["id"];
-    const auto* x_vec = std::get_if<std::vector<double>>(&df["x"]);
+nb::data_frame df_transform(nb::data_frame df) {
+    const auto idx_id = df.index_of("id");
+    const auto idx_x = df.index_of("x");
+    const auto idx_tag = df.index_of("tag");
+    const auto* x_vec = std::get_if<std::vector<double>>(&df.columns[idx_x]);
     if (x_vec == nullptr) {
         throw nb::type_error("column 'x' must be float64");
     }
-    const auto& tag_col = df["tag"];
 
     const std::size_t n = x_vec->size();
     std::vector<double> y_vec(n);
@@ -114,14 +116,40 @@ nb::data_frame df_transform(const nb::data_frame& df) {
                 }
             }
         },
-        id_col);
+        df.columns[idx_id]);
 
     nb::data_frame out;
-    out.add_column("id", id_col);
-    out.add_column("x", *x_vec);
+    out.add_column("id", std::move(df.columns[idx_id]));
+    out.add_column("x", std::move(df.columns[idx_x]));
     out.add_column("y", std::move(y_vec));
-    out.add_column("tag", tag_col);
+    out.add_column("tag", std::move(df.columns[idx_tag]));
     return out;
+}
+
+nb::arrow_batch arrow_transform(const nb::arrow_batch_view& batch) {
+    const std::size_t n = batch.nrows();
+    auto sx = batch.column_span<double>("x");
+    std::vector<double> y_vec(n);
+    if (batch.column_format("id") == "l") {
+        auto sid = batch.column_span<std::int64_t>("id");
+        for (std::size_t i = 0; i < n; ++i) {
+            y_vec[i] = sx[i] * 2.0 + static_cast<double>(sid[i]);
+        }
+    } else {
+        auto sid = batch.column_span<std::int32_t>("id");
+        for (std::size_t i = 0; i < n; ++i) {
+            y_vec[i] = sx[i] * 2.0 + static_cast<double>(sid[i]);
+        }
+    }
+    return batch.insert_column(2, "y", std::move(y_vec));
+}
+
+nb::arrow_batch df_to_arrow(nb::data_frame df) {
+    return nb::export_to_arrow(std::move(df));
+}
+
+nb::data_frame arrow_to_df(const nb::arrow_batch& batch) {
+    return nb::import_from_arrow(batch);
 }
 
 } // namespace
@@ -144,4 +172,7 @@ PYRABIND_MODULE(bench_module, m) {
     m.def("scale_vec", &scale_vec, "a"_a, "factor"_a, "offset"_a);
     m.def("mat_sum_view", &mat_sum_view, "m"_a);
     m.def("df_transform", &df_transform, "df"_a);
+    m.def("arrow_transform", &arrow_transform, "batch"_a);
+    m.def("df_to_arrow", &df_to_arrow, "df"_a);
+    m.def("arrow_to_df", &arrow_to_df, "batch"_a);
 }

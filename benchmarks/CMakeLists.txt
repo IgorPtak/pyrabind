@@ -14,6 +14,7 @@ if(PYRABIND_BUILD_PYTHON)
         OUTPUT_NAME "raw_nb_bench"
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/python"
     )
+    target_include_directories(raw_nb_bench PRIVATE "${CMAKE_SOURCE_DIR}/include")
     pyrabind_apply_strict_warnings(raw_nb_bench)
 
     Python_add_library(raw_py_bench MODULE WITH_SOABI raw_py_baseline.cpp)
@@ -38,6 +39,7 @@ if(PYRABIND_BUILD_R)
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN ON
     )
+    target_include_directories(raw_r_bench PRIVATE "${CMAKE_SOURCE_DIR}/include")
     target_include_directories(raw_r_bench SYSTEM PRIVATE "${R_INCLUDE_DIR}")
     target_link_libraries(raw_r_bench PRIVATE R::R)
     pyrabind_apply_strict_warnings(raw_r_bench)

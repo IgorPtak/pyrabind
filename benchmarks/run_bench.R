@@ -22,6 +22,7 @@ sym_dot_vec <- getNativeSymbolInfo("raw_r_dot_vec", raw_dll)
 sym_scale_vec <- getNativeSymbolInfo("raw_r_scale_vec", raw_dll)
 sym_mat_sum <- getNativeSymbolInfo("raw_r_mat_sum", raw_dll)
 sym_df_transform <- getNativeSymbolInfo("raw_r_df_transform", raw_dll)
+sym_arrow_transform <- getNativeSymbolInfo("raw_r_arrow_transform", raw_dll)
 
 measure_r <- function(fn, target_trial_ms = 20.0, trials = 19L, min_iters = 1L, max_iters = 200000L) {
     fn()
@@ -116,6 +117,15 @@ stopifnot(identical(names(out_df_pb), c("id", "x", "y", "tag")))
 stopifnot(nrow(out_df_pb) == n)
 stopifnot(max(abs(out_df_pb$y - out_df_raw$y)) < 1e-12)
 
+rb_in <- mod$df_to_arrow(df)
+rb_pb_check <- mod$arrow_to_df(mod$arrow_transform(rb_in))
+rb_raw_check <- mod$arrow_to_df(.Call(sym_arrow_transform, rb_in))
+stopifnot(identical(names(rb_pb_check), c("id", "x", "y", "tag")))
+stopifnot(identical(names(rb_raw_check), c("id", "x", "y", "tag")))
+stopifnot(max(abs(rb_pb_check$y - out_df_raw$y)) < 1e-12)
+stopifnot(max(abs(rb_raw_check$y - out_df_raw$y)) < 1e-12)
+rm(rb_pb_check, rb_raw_check)
+
 pb_noop_fn <- mod$noop
 pb_add_fn <- mod$add_i64
 pb_dot_view_fn <- mod$dot_view
@@ -124,6 +134,7 @@ pb_scale_nd_fn <- mod$scale_ndarray
 pb_scale_vec_fn <- mod$scale_vec
 pb_mat_view_fn <- mod$mat_sum_view
 pb_df_fn <- mod$df_transform
+pb_arrow_fn <- mod$arrow_transform
 
 benchmarks <- list(
     noop = list(
@@ -175,6 +186,10 @@ benchmarks <- list(
             min_iters = 2L,
             max_iters = 100L
         )
+    ),
+    arrow_transform_100k = list(
+        pyrabind = measure_r(function() pb_arrow_fn(rb_in), min_iters = 5L, max_iters = 2000L),
+        raw_capi = measure_r(function() .Call(sym_arrow_transform, rb_in), min_iters = 5L, max_iters = 2000L)
     )
 )
 

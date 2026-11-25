@@ -147,6 +147,43 @@ inline bool extract_object_items(PyObject* const* items, Py_ssize_t n, column_da
     }
 
     PyObject* pd_na = get_pandas_na();
+
+    // Optimistic single-pass fast path when the first non-null element is a Python str.
+    Py_ssize_t first = 0;
+    while (first < n && is_py_null(items[first], pd_na)) {
+        ++first;
+    }
+    if (first < n && PyUnicode_Check(items[first])) {
+        std::vector<std::string> vec(static_cast<std::size_t>(n));
+        std::vector<std::uint8_t> mask;
+        if (first > 0) {
+            mask.assign(static_cast<std::size_t>(n), 1);
+            for (Py_ssize_t k = 0; k < first; ++k) {
+                mask[static_cast<std::size_t>(k)] = 0;
+            }
+        }
+        bool fast_ok = true;
+        for (Py_ssize_t i = first; i < n; ++i) {
+            PyObject* item = items[i];
+            if (i != first && is_py_null(item, pd_na)) {
+                if (mask.empty()) {
+                    mask.assign(static_cast<std::size_t>(n), 1);
+                }
+                mask[static_cast<std::size_t>(i)] = 0;
+                continue;
+            }
+            if (!PyUnicode_Check(item) || !py_str_to_std(item, vec[static_cast<std::size_t>(i)])) {
+                fast_ok = false;
+                break;
+            }
+        }
+        if (fast_ok) {
+            out = std::move(vec);
+            out_mask = std::move(mask);
+            return true;
+        }
+    }
+
     bool all_bool = true;
     bool all_int = true;
     bool all_num = true;
@@ -382,13 +419,20 @@ inline bool extract_column(PyObject* col_obj, column_data& out,
                     return true;
                 }
                 if (fmt == 'O' && itemsize == static_cast<Py_ssize_t>(sizeof(PyObject*))) {
-                    std::vector<PyObject*> items(static_cast<std::size_t>(n));
-                    for (Py_ssize_t i = 0; i < n; ++i) {
-                        items[static_cast<std::size_t>(i)] =
-                            *reinterpret_cast<PyObject* const*>(base + i * stride);
-                    }
-                    if (extract_object_items(items.data(), n, out, out_mask)) {
-                        return true;
+                    if (stride == itemsize) {
+                        if (extract_object_items(reinterpret_cast<PyObject* const*>(base), n, out,
+                                                 out_mask)) {
+                            return true;
+                        }
+                    } else {
+                        std::vector<PyObject*> items(static_cast<std::size_t>(n));
+                        for (Py_ssize_t i = 0; i < n; ++i) {
+                            items[static_cast<std::size_t>(i)] =
+                                *reinterpret_cast<PyObject* const*>(base + i * stride);
+                        }
+                        if (extract_object_items(items.data(), n, out, out_mask)) {
+                            return true;
+                        }
                     }
                 }
             }

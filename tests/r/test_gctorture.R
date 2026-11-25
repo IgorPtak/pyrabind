@@ -130,7 +130,13 @@ null_df <- data.frame(
     stringsAsFactors = FALSE
 )
 stopifnot(tm$df_count_nulls(null_df) == 4L)
-abatch <- tm$arrow_roundtrip(tm$df_to_arrow(null_df))
+view_ab <- tm$df_to_arrow(null_df)
+stopifnot(tm$arrow_tag_total_len(view_ab) == 2L)
+added_ab <- tm$arrow_add_col(view_ab)
+added_df <- tm$arrow_to_df(added_ab)
+stopifnot(abs(added_df$y[[1L]] - 4.0) < 1e-12, is.na(added_df$y[[2L]]))
+stopifnot(tm$arrow_tag_total_len(view_ab) == 2L)
+abatch <- tm$arrow_roundtrip(view_ab)
 stopifnot(tm$df_count_nulls(tm$arrow_to_df(abatch)) == 4L)
 
 gctorture(FALSE)

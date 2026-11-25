@@ -49,6 +49,7 @@ bool r_extract_capsule(SEXP x, capsule& out);
 SEXP r_wrap_iterator(std::function<SEXP(bool&, SEXP)> next_fn);
 
 void r_attach_keep_alive(SEXP nurse, SEXP patient);
+std::shared_ptr<void> r_retain_arrow_lease(SEXP arr, SEXP sch);
 
 // Shared implementation for bound C++ classes and PYRABIND_MAKE_OPAQUE types.
 template <typename T> struct class_type_caster {

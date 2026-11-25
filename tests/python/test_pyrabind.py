@@ -294,6 +294,15 @@ class TestPyrabindPython(unittest.TestCase):
             self.assertEqual(pa_out.num_rows, 3)
             self.assertEqual(pa_out.column("tag").to_pylist(), ["a", None, "c"])
 
+            # Non-destructive zero-copy arrow_batch_view reuse across repeated calls
+            self.assertEqual(tm.arrow_tag_total_len(pa_batch), 2)
+            self.assertEqual(tm.arrow_tag_total_len(pa_batch), 2)
+            added1 = pa.record_batch(tm.arrow_add_col(pa_batch))
+            added2 = pa.record_batch(tm.arrow_add_col(pa_batch))
+            self.assertEqual(added1.schema.names, ["id", "x", "y", "flag", "tag"])
+            self.assertEqual(added1.column("tag").to_pylist(), ["a", None, "c"])
+            self.assertEqual(added2.column("y").to_pylist(), [4.0, None, 10.0])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

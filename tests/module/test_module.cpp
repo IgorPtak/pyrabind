@@ -518,6 +518,43 @@ nb::arrow_batch arrow_roundtrip(nb::arrow_batch batch) {
     return nb::export_to_arrow(std::move(df));
 }
 
+nb::arrow_batch arrow_add_col(const nb::arrow_batch_view& batch) {
+    const std::size_t n = batch.nrows();
+    auto sx = batch.column_span<double>("x");
+    std::vector<double> y(n, 0.0);
+    std::vector<std::uint8_t> y_mask;
+    const auto id_fmt = batch.column_format("id");
+    auto compute = [&](const auto& sid) {
+        for (std::size_t i = 0; i < n; ++i) {
+            if (sx.is_null(i) || sid.is_null(i)) {
+                if (y_mask.empty()) {
+                    y_mask.assign(n, 1);
+                }
+                y_mask[i] = 0;
+            } else {
+                y[i] = sx[i] * 2.0 + static_cast<double>(sid[i]);
+            }
+        }
+    };
+    if (id_fmt == "l") {
+        compute(batch.column_span<std::int64_t>("id"));
+    } else {
+        compute(batch.column_span<std::int32_t>("id"));
+    }
+    return batch.insert_column(2, "y", std::move(y), std::move(y_mask));
+}
+
+std::size_t arrow_tag_total_len(const nb::arrow_batch_view& batch) {
+    auto tags = batch.string_column_view("tag");
+    std::size_t total = 0;
+    for (std::size_t i = 0; i < tags.size(); ++i) {
+        if (!tags.is_null(i)) {
+            total += tags[i].size();
+        }
+    }
+    return total;
+}
+
 } // namespace
 
 PYRABIND_MODULE(test_module, m) {
@@ -712,4 +749,6 @@ PYRABIND_MODULE(test_module, m) {
     m.def("df_to_arrow", &df_to_arrow, "df"_a);
     m.def("arrow_to_df", &arrow_to_df, "batch"_a);
     m.def("arrow_roundtrip", &arrow_roundtrip, "batch"_a);
+    m.def("arrow_add_col", &arrow_add_col, "batch"_a);
+    m.def("arrow_tag_total_len", &arrow_tag_total_len, "batch"_a);
 }

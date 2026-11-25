@@ -599,6 +599,14 @@ SEXP r_invoke_r_callable(SEXP fn_sexp, const std::vector<SEXP>& args) {
     return res;
 }
 
+std::shared_ptr<void> r_retain_arrow_lease(SEXP arr, SEXP sch) {
+    struct RArrowLease {
+        cpp11::sexp arr;
+        cpp11::sexp sch;
+    };
+    return std::make_shared<RArrowLease>(RArrowLease{cpp11::sexp(arr), cpp11::sexp(sch)});
+}
+
 bool r_acquire_ndarray(SEXP x, pb_dtype req_dtype, bool require_writable, std::int32_t req_ndim,
                        const std::int64_t* req_shape, char req_order, r_ndarray_desc& out) {
     if (x == nullptr || x == R_NilValue) {
@@ -1059,19 +1067,19 @@ SEXP r_from_data_frame(const data_frame& df) {
                                                                            R_NilValue);
                     }
                     SEXP res = PROTECT(cpp11::safe[Rf_allocVector](STRSXP, nrows));
-                    for (R_xlen_t i = 0; i < nrows; ++i) {
-                        const std::size_t ri = static_cast<std::size_t>(i);
-                        if (df.is_null(ci, ri)) {
-                            SET_STRING_ELT(res, i, NA_STRING);
-                        } else {
-                            SEXP ch = PROTECT(cpp11::unwind_protect([&]() {
-                                return Rf_mkCharLenCE(vec[ri].data(),
-                                                      static_cast<int>(vec[ri].size()), CE_UTF8);
-                            }));
-                            SET_STRING_ELT(res, i, ch);
-                            UNPROTECT(1);
+                    cpp11::unwind_protect([&]() {
+                        for (R_xlen_t i = 0; i < nrows; ++i) {
+                            const std::size_t ri = static_cast<std::size_t>(i);
+                            if (df.is_null(ci, ri)) {
+                                SET_STRING_ELT(res, i, NA_STRING);
+                            } else {
+                                SEXP ch = PROTECT(Rf_mkCharLenCE(
+                                    vec[ri].data(), static_cast<int>(vec[ri].size()), CE_UTF8));
+                                SET_STRING_ELT(res, i, ch);
+                                UNPROTECT(1);
+                            }
                         }
-                    }
+                    });
                     UNPROTECT(1);
                     return res;
                 }

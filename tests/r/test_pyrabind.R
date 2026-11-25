@@ -299,6 +299,16 @@ if (requireNamespace("nanoarrow", quietly = TRUE)) {
     stopifnot(is.na(na_conv$tag[[2L]]), na_conv$id[[1L]] == 1L)
     na_back <- tm$arrow_to_df(nanoarrow::as_nanoarrow_array(null_df))
     stopifnot(tm$df_count_nulls(na_back) == 4L, na_back$tag[[3L]] == "c")
+
+    # Non-destructive zero-copy arrow_batch_view reuse across repeated calls
+    rb_view_in <- tm$df_to_arrow(null_df)
+    stopifnot(tm$arrow_tag_total_len(rb_view_in) == 2L)
+    stopifnot(tm$arrow_tag_total_len(rb_view_in) == 2L)
+    added1 <- nanoarrow::convert_array(tm$arrow_add_col(rb_view_in))
+    added2 <- nanoarrow::convert_array(tm$arrow_add_col(rb_view_in))
+    stopifnot(identical(names(added1), c("id", "x", "y", "flag", "tag")))
+    stopifnot(is.na(added1$y[[2L]]), abs(added1$y[[1L]] - 4.0) < 1e-12, abs(added2$y[[3L]] - 10.0) < 1e-12)
+    stopifnot(is.na(added2$tag[[2L]]), added2$tag[[3L]] == "c")
 }
 
 cat("All pyrabind R tests passed\n")

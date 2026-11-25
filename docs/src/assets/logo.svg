@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <radialGradient id="pyraBody" cx="38%" cy="32%" r="68%">
+      <stop offset="0%" stop-color="#FDE68A"/>
+      <stop offset="30%" stop-color="#FBBF24"/>
+      <stop offset="70%" stop-color="#D97706"/>
+      <stop offset="100%" stop-color="#92400E"/>
+    </radialGradient>
+    <linearGradient id="pyraRim" x1="65" y1="60" x2="190" y2="206" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FEF3C7" stop-opacity="0.8"/>
+      <stop offset="55%" stop-color="#F59E0B" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#451A03" stop-opacity="0.5"/>
+    </linearGradient>
+    <linearGradient id="sproutGrad" x1="88" y1="16" x2="168" y2="66" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6EE7B7"/>
+      <stop offset="50%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="leafLeft" x1="86" y1="42" x2="126" y2="66" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6EE7B7"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="leafRight" x1="168" y1="42" x2="128" y2="66" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="pythonOrbit" x1="24" y1="136" x2="232" y2="136" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#60A5FA"/>
+      <stop offset="50%" stop-color="#3776AB"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="pythonOrbitBack" x1="24" y1="136" x2="232" y2="136" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#60A5FA" stop-opacity="0.72"/>
+      <stop offset="50%" stop-color="#2563EB" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.72"/>
+    </linearGradient>
+    <linearGradient id="rOrbit" x1="24" y1="136" x2="232" y2="136" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4F46E5"/>
+      <stop offset="50%" stop-color="#276DC3"/>
+      <stop offset="100%" stop-color="#818CF8"/>
+    </linearGradient>
+    <linearGradient id="rOrbitBack" x1="24" y1="136" x2="232" y2="136" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4F46E5" stop-opacity="0.72"/>
+      <stop offset="50%" stop-color="#276DC3" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#818CF8" stop-opacity="0.72"/>
+    </linearGradient>
+    <radialGradient id="pyGoldNode" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#FEF08A"/>
+      <stop offset="55%" stop-color="#FACC15"/>
+      <stop offset="100%" stop-color="#CA8A04"/>
+    </radialGradient>
+    <radialGradient id="rSilverNode" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="55%" stop-color="#CBD5E1"/>
+      <stop offset="100%" stop-color="#64748B"/>
+    </radialGradient>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="135%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#0F172A" flood-opacity="0.26"/>
+    </filter>
+  </defs>
+
+  <!-- Layer 1: Back halves of tilted C^inf-smooth Python and R orbital ribbons -->
+  <g transform="rotate(-26 128 136)">
+    <path d="M 24 136 A 104 38 0 0 1 232 136"
+          stroke="url(#pythonOrbitBack)" stroke-width="14" stroke-linecap="round"/>
+  </g>
+  <g transform="rotate(26 128 136)">
+    <path d="M 24 136 A 104 38 0 0 1 232 136"
+          stroke="url(#rOrbitBack)" stroke-width="14" stroke-linecap="round"/>
+  </g>
+
+  <!-- Layer 2: Poznan Koziolki twin curled sprouts & emerald leaves -->
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 124 68 C 120 44, 100 22, 80 28 C 66 32, 65 48, 77 52 C 85 54, 89 46, 85 41"
+          stroke="url(#sproutGrad)" stroke-width="8.5" fill="none"/>
+    <path d="M 128 68 C 132 44, 152 22, 172 28 C 186 32, 187 48, 175 52 C 167 54, 163 46, 167 41"
+          stroke="url(#sproutGrad)" stroke-width="8.5" fill="none"/>
+    <path d="M 124 69 C 108 50, 86 50, 80 64 C 96 69, 112 70, 124 69 Z" fill="url(#leafLeft)"/>
+    <path d="M 128 69 C 144 50, 166 50, 172 64 C 156 69, 140 70, 128 69 Z" fill="url(#leafRight)"/>
+  </g>
+
+  <!-- Layer 3: Sculpted Golden Poznan Pyra with organic potato silhouette -->
+  <g filter="url(#softShadow)">
+    <path d="M 126 62 C 162 61, 189 80, 188 112 C 187 131, 195 150, 188 172 C 180 197, 153 209, 124 207 C 92 205, 67 188, 65 154 C 63 130, 71 114, 73 94 C 76 72, 97 63, 126 62 Z"
+          fill="url(#pyraBody)" stroke="url(#pyraRim)" stroke-width="3"/>
+
+    <!-- Specular cheek highlight -->
+    <ellipse cx="101" cy="100" rx="18" ry="10.5" transform="rotate(-30 101 100)"
+             fill="#FFFBEB" opacity="0.38"/>
+    <circle cx="88" cy="119" r="4.2" fill="#FFFBEB" opacity="0.28"/>
+
+    <!-- Organic potato dimples / eyes & warm skin freckles positioned cleanly above ribbons -->
+    <path d="M 149 91 Q 158 95 165 89" stroke="#78350F" stroke-width="3.2" stroke-linecap="round" opacity="0.65"/>
+    <path d="M 88 134 Q 97 139 104 134" stroke="#78350F" stroke-width="3.2" stroke-linecap="round" opacity="0.6"/>
+    <path d="M 148 138 Q 157 142 164 136" stroke="#78350F" stroke-width="3.2" stroke-linecap="round" opacity="0.6"/>
+    <circle cx="168" cy="114" r="2.2" fill="#92400E" opacity="0.45"/>
+    <circle cx="122" cy="148" r="2.1" fill="#92400E" opacity="0.38"/>
+
+    <!-- Warm lower crescent shading -->
+    <path d="M 73 166 C 85 193, 105 204, 125 204 C 150 204, 173 190, 182 161 C 167 186, 146 196, 124 196 C 101 196, 83 184, 73 166 Z"
+          fill="#78350F" opacity="0.22"/>
+  </g>
+
+  <!-- Layer 4: Front overlapping Python & R orbital ribbons + binding nodes -->
+  <g transform="rotate(-26 128 136)">
+    <path d="M 232 136 A 104 38 0 0 1 24 136"
+          stroke="url(#pythonOrbit)" stroke-width="14" stroke-linecap="round" fill="none"/>
+    <path d="M 218 144 A 96 33 0 0 1 56 154"
+          stroke="#DBEAFE" stroke-width="2.2" stroke-linecap="round" opacity="0.55" fill="none"/>
+    <circle cx="24" cy="136" r="10.5" fill="url(#pyGoldNode)" stroke="#1E3A8A" stroke-width="2.5"/>
+  </g>
+
+  <g transform="rotate(26 128 136)">
+    <path d="M 232 136 A 104 38 0 0 1 24 136"
+          stroke="url(#rOrbit)" stroke-width="14" stroke-linecap="round" fill="none"/>
+    <path d="M 200 154 A 96 33 0 0 1 38 144"
+          stroke="#E0E7FF" stroke-width="2.2" stroke-linecap="round" opacity="0.55" fill="none"/>
+    <circle cx="232" cy="136" r="10.5" fill="url(#rSilverNode)" stroke="#1E3A8A" stroke-width="2.5"/>
+  </g>
+
+  <!-- Center crossing bind jewel (<> mark centered cleanly at orbit intersection y=178) -->
+  <circle cx="128" cy="178" r="11.5" fill="#1E3A8A" stroke="#FEF08A" stroke-width="2.5"/>
+  <path d="M 124 174 L 120 178 L 124 182 M 132 174 L 136 178 L 132 182"
+        stroke="#FEF08A" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

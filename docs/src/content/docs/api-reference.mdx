@@ -1,4 +1,9 @@
-# API Reference
+---
+title: API Reference
+description: Modules, functions, kw_only, call_guard, classes, inheritance, static/instance properties, operators, iterators, containers, enums, lifetimes, exceptions, and stubgen.
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 Every `pyrabind` binding translation unit includes `pyrabind/pyrabind.hpp` (`include/pyrabind/pyrabind.hpp`, plus optional feature headers) and aliases `namespace nb = pyrabind;`. On Python builds, these declarations forward straight to `::nanobind`. On R builds, they bind cleanly to the `cpp11` runtime.
 
@@ -11,8 +16,10 @@ Every `pyrabind` binding translation unit includes `pyrabind/pyrabind.hpp` (`inc
 | `#include "pyrabind/pyrabind.hpp"` | `PYRABIND_MODULE`, `PYRABIND_MAKE_OPAQUE`, `module_`, `class_`, `enum_`, `exception<T>`, `handle`, `type<T>()`, `arg`, `literals` (`"_a"`), `init`, `new_`, `overload_cast`, `const_`, `kw_only`, `call_guard`, `gil_scoped_acquire`/`_release`, `rv_policy`, `keep_alive`, `capsule`, `none()`, built-in exception factories, `std::string`, `std::string_view` |
 | `#include "pyrabind/make_iterator.hpp"` | `make_iterator`, `make_key_iterator`, `make_value_iterator` |
 | `#include "pyrabind/ndarray.hpp"` | `ndarray`, `ndim<N>`, `shape<...>`, `c_contig`, `f_contig`, `any_contig`, `numpy`, `pytorch`, `no_framework`, `ro`, `device::cpu` |
-| `#include "pyrabind/dataframe.hpp"` | `data_frame`, `column_data`, and host casters for `pandas.DataFrame` / `dict` (Python) and `data.frame` / `tibble` (R) |
+| `#include "pyrabind/eigen.hpp"` | Eigen `Matrix`, `Array`, `Map`, `Ref` and dynamic stride aliases `DRef`, `DMap`, `DStride`, `DRef1`, `DMap1`, `DStride1` |
+| `#include "pyrabind/dataframe.hpp"` | Nullable `data_frame`, `column_data`, and host casters for `pandas.DataFrame` / `dict` (Python) and `data.frame` / `tibble` (R) |
 | `#include "pyrabind/dataframe_types.hpp"` | Backend-free `pyrabind::column_data` and `pyrabind::data_frame` definitions (usable with `PYRABIND_CORE_ONLY`) |
+| `#include "pyrabind/arrow.hpp"` | Zero-copy Arrow C Data Interface bridges (`arrow_batch`, `export_to_arrow`, `import_from_arrow`, bundled `arrow_abi.hpp`) |
 | `#include "pyrabind/operators.hpp"` | `nb::self`, `nb::abs`, `nb::hash`, and operator expression templates |
 | `#include "pyrabind/stl.hpp"` | Convenience header including all 19 STL/smart-pointer/chrono/complex/callback casters (`pyrabind/stl/*.hpp`) |
 | `#include "pyrabind/stl/bind_vector.hpp"` | Opt-in opaque binding helper `nb::bind_vector<Vector>(scope, name, ...)` |
@@ -36,7 +43,7 @@ PYRABIND_MODULE(my_module, m) {
 }
 ```
 
-- `PYRABIND_MODULE(name, var)` expands to `NB_MODULE(name, var)` on Python and defines `R_init_<name>(DllInfo*)` on R. Keep `<name>` aligned with the first argument passed to `pyrabind_add_module(<name> ...)`.
+- ``PYRABIND_MODULE(name, var)`` expands to ``NB_MODULE(name, var)`` on Python and defines ``R_init_<name>(DllInfo*)`` on R. Keep ``<name>`` aligned with the first argument passed to ``pyrabind_add_module(<name> ...)``.
 - `m.doc() = "..."` attaches `__doc__` on Python and stores the module docstring in the C++ R `module_record`.
 - `m.attr("NAME") = value` binds module-level constants into the Python module and into the R module environment.
 
@@ -77,7 +84,10 @@ m.def("guarded_work", &work, "x"_a,
 
 - Any argument after `nb::kw_only()` must be passed by keyword (`kw_combine(1, b=2)` works; `kw_combine(1, 2)` fails overload matching on both Python and R).
 - `nb::call_guard<Guards...>()` constructs each guard on entry and destroys it on exit; `nb::gil_scoped_release` and `nb::gil_scoped_acquire` compile cleanly as zero-cost no-ops on the single-threaded R target while releasing/acquiring the GIL on Python.
-- If a function allocates and returns a new `nb::capsule` (e.g., owning an output `nb::ndarray`), do **not** attach `nb::call_guard<nb::gil_scoped_release>()` to the whole wrapper, because `nb::capsule` calls `PyCapsule_New` before the call guard destructor restores the GIL. Wrap only the pure C++ compute loop in a scoped `{ nb::gil_scoped_release nogil; ... }` block before constructing `nb::capsule`.
+
+<Aside type="caution" title="Returning nb::capsule from GIL-released functions">
+If a function allocates and returns a new `nb::capsule` (e.g., owning an output `nb::ndarray`), do **not** attach `nb::call_guard<nb::gil_scoped_release>()` to the whole wrapper, because `nb::capsule` calls `PyCapsule_New` before the call-guard destructor restores the GIL. Wrap only the pure C++ compute loop in a scoped `{ nb::gil_scoped_release nogil; ... }` block before constructing `nb::capsule`.
+</Aside>
 
 ### Two-Pass Overload Resolution
 
@@ -282,6 +292,7 @@ Properties default to `nb::rv_policy::reference_internal`; functions and methods
 | `none` | Refuses returning unmanaged C++ type |
 
 Example:
+
 ```cpp
 .def("get_embedded", &Container::get_embedded, nb::rv_policy::reference_internal)
 ```
@@ -322,14 +333,24 @@ Throw `nb::value_error(...)`, `nb::type_error(...)`, `nb::index_error(...)`, `nb
 | `nb::stop_iteration` | `StopIteration` | `c("pyrabind_stop_iteration", "pyrabind_error", "error", "condition")` |
 | `std::runtime_error` / `std::exception` | `RuntimeError` | `c("pyrabind_runtime_error", "pyrabind_error", "error", "condition")` |
 
-Catching in R with `tryCatch`:
-
+<Tabs>
+  <TabItem label="R (tryCatch)">
 ```r
 tryCatch(
     tm$check_positive(-1L),
     pyrabind_value_error = function(e) message("Caught value error: ", e$message)
 )
 ```
+  </TabItem>
+  <TabItem label="Python (try/except)">
+```python
+try:
+    tm.check_positive(-1)
+except ValueError as err:
+    print("Caught value error:", err)
+```
+  </TabItem>
+</Tabs>
 
 ### Custom Exceptions (`nb::exception<T>`)
 
@@ -360,4 +381,4 @@ PYRABIND_MODULE(mod, m) {
 - **PEP 484 type stubs (`.pyi`)** for IDEs, `mypy`, and `pyright`, optionally AST-validated via `--verify`.
 - **`roxygen2`-documented R wrappers (`.R`)** exporting user-friendly top-level R functions delegating to the loaded `pyrabind` environment.
 
-See [Getting Started & Build Guide](getting-started.md) for CLI invocation examples.
+See [Getting Started & Build Guide](/pyrabind/getting-started/) for CLI invocation examples.

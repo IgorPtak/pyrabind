@@ -18,6 +18,9 @@ __pycache__/
 .DS_Store
 compile_commands.json
 site/
+docs/node_modules/
+docs/dist/
+docs/.astro/
 *.egg-info/
 dist/
 *.tar.gz

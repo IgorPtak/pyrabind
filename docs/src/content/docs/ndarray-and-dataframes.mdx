@@ -1,4 +1,7 @@
-# NumPy, `ndarray`, Eigen, Arrow & `data_frame`
+---
+title: NumPy, ndarray, Eigen, Arrow & data_frame
+description: Zero-copy strided ndarray views, Eigen dense/Map/Ref matrices, nullable nb::data_frame tables, and Arrow C Data Interface bridges.
+---
 
 `pyrabind` provides high-throughput interfaces for numerical computing, linear algebra, and columnar data workflows:
 
@@ -20,7 +23,7 @@ Include `#include "pyrabind/ndarray.hpp"`. `nb::ndarray<...>` accepts upstream `
 | `T` or `const T` (or `nb::ro`) | Element type (`double`, `float`, `std::int32_t`, `std::int64_t`, `std::uint8_t`, `bool`); `const T` / `nb::ro` marks input read-only |
 | `nb::ndim<N>` | Require exact dimensionality `N` (`1`, `2`, ...) |
 | `nb::shape<D0, D1, ...>` | Require dimensionality and fixed extents (use `-1` for dynamic dimensions, e.g., `nb::shape<-1, 3>`) |
-| `nb::c_contig` / `nb::f_contig` / `nb::any_contig` | Memory contiguity constraint (note: R matrices/arrays >= 2D are column-major and reject `c_contig`) |
+| `nb::c_contig` / `nb::f_contig` / `nb::any_contig` | Memory contiguity constraint (note: R matrices/arrays `>= 2D` are column-major and reject `c_contig`) |
 | `nb::numpy`, `nb::pytorch`, `nb::no_framework`, `nb::device::cpu` | Framework / device tags forwarded directly to `nanobind` on Python |
 
 ### Reading Input Arrays with `.view()` and Contiguous Fast Paths
@@ -94,7 +97,7 @@ nb::ndarray<nb::numpy, double, nb::ndim<2>> nd_make_2d(std::size_t rows, std::si
 }
 ```
 
-- **Python**: `nanobind` transfers `buf` and `owner` straight into a `numpy.ndarray` with **zero copy** (`scale_100k`: **10.21 us** vs **1.032 ms** for `std::vector<double>`).
+- **Python**: `nanobind` transfers `buf` and `owner` straight into a `numpy.ndarray` with **zero copy** (`scale_100k`: **13.71 us** vs **998.19 us** for `std::vector<double>`).
 - **R**: `r_export_ndarray` allocates a native R vector (`REALSXP`, `INTSXP`, `LGLSXP`, `RAWSXP`) or column-major matrix/array (`Rf_allocMatrix` / `R_DimSymbol`), transposing 2D+ strides into column-major R storage before C++ releases the capsule (`out2[1L, 3L] == 3.0`, `out2[2L, 1L] == 11.0`).
 
 ### R `ndarray` Mapping & ALTREP Details
@@ -105,7 +108,7 @@ nb::ndarray<nb::numpy, double, nb::ndim<2>> nd_make_2d(std::size_t rows, std::si
 
 ---
 
-## 2. `nb::data_frame`: Columnar Tables (`pandas.DataFrame` & R `data.frame`)
+## 2. `nb::data_frame`: Nullable Columnar Tables (`pandas.DataFrame` & R `data.frame`)
 
 ### C++ Structure
 
@@ -155,7 +158,7 @@ struct data_frame {
 
 ### Performance Guidance
 
-`nb::data_frame` eagerly materializes all columns across the C++/host boundary (including `std::string` allocations per string element), taking **3.539 ms** in Python and **1.970 ms** in R on 100k rows (`id`, `x`, `y`, `tag`). When only numeric columns are needed in a hot loop, extract columns in host code and pass individual `nb::ndarray<const T, nb::ndim<1>>` parameters instead for sub-100 us latency.
+`nb::data_frame` eagerly materializes all columns across the C++/host boundary (including `std::string` allocations per string element), taking **5.307 ms** in Python and **2.112 ms** in R on 100k rows (`id`, `x`, `y`, `tag`). When only numeric columns are needed in a hot loop, extract columns in host code and pass individual `nb::ndarray<const T, nb::ndim<1>>` parameters instead for sub-100 us latency, or use `pyrabind/arrow.hpp` for zero-copy structured tables.
 
 ---
 

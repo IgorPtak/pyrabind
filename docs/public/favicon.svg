@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <radialGradient id="favPyra" cx="38%" cy="32%" r="68%">
+      <stop offset="0%" stop-color="#FDE68A"/>
+      <stop offset="45%" stop-color="#FBBF24"/>
+      <stop offset="100%" stop-color="#B45309"/>
+    </radialGradient>
+  </defs>
+  <!-- Split dual-language outer ring -->
+  <path d="M 26 57 A 25 25 0 0 1 28 7" stroke="#3776AB" stroke-width="6" stroke-linecap="round"/>
+  <path d="M 38 7 A 25 25 0 0 1 36 57" stroke="#6366F1" stroke-width="6" stroke-linecap="round"/>
+  <!-- Koziolki twin sprouts -->
+  <path d="M 31 18 C 29 11, 23 8, 19 11" stroke="#10B981" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M 33 18 C 35 11, 41 8, 45 11" stroke="#10B981" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- Bold Golden Pyra -->
+  <path d="M 32 16 C 43 16, 49 24, 48 36 C 47 47, 40 53, 32 53 C 23 53, 16 47, 16 36 C 16 24, 21 16, 32 16 Z"
+        fill="url(#favPyra)" stroke="#78350F" stroke-width="2"/>
+  <ellipse cx="26" cy="26" rx="4.5" ry="2.6" transform="rotate(-30 26 26)" fill="#FFFBEB" opacity="0.5"/>
+  <!-- Accent nodes -->
+  <circle cx="14" cy="48" r="3.5" fill="#FACC15" stroke="#1E3A8A" stroke-width="1.4"/>
+  <circle cx="50" cy="48" r="3.5" fill="#E2E8F0" stroke="#1E40AF" stroke-width="1.4"/>
+</svg>

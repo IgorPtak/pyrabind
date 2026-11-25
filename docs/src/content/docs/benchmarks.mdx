@@ -1,0 +1,82 @@
+---
+title: Overhead & Data-Science Benchmarks
+description: Measured Release -O3 latency across C++, Python (pyrabind, raw nanobind, raw C-API, NumPy/pandas), and R (pyrabind, raw .Call, base R).
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`pyrabind` includes a head-to-head benchmark suite (`benchmarks/`) comparing:
+
+- **Pure C++ `-O3`** (`benchmarks/bench_cpp.cpp`)
+- **Python `pyrabind`** (`benchmarks/bench_module.cpp` passing straight through to upstream `nanobind` with `NOMINSIZE` / `-O3`)
+- **Raw `nanobind`** (`benchmarks/raw_nb_baseline.cpp` using `NB_MODULE` directly with `NOMINSIZE` / `-O3`, covering all 7 workloads plus `std::vector` copy)
+- **Raw Python C-API** (`benchmarks/raw_py_baseline.cpp` using `METH_FASTCALL` + `Py_buffer`)
+- **R `pyrabind`** (`benchmarks/bench_module.cpp` compiled against `cpp11` + `.External` + hashed class environments)
+- **Raw R `.Call`** (`benchmarks/raw_r_baseline.cpp`)
+- **Pure NumPy / pandas & pure base R**
+
+## Test Environment
+
+Measured in full `-O3` Release mode (`-DCMAKE_BUILD_TYPE=Release` with `NOMINSIZE` passed to `pyrabind_add_module` and `nanobind_add_module`) on:
+
+- **Hardware / OS**: `Apple M4`, `macOS-27.0.1-arm64-arm-64bit` (`arm64`)
+- **Compiler**: `Apple clang version 21.0.0 (clang-2100.4.1.1)` (`-std=c++20`)
+- **Python stack**: Python `3.12.8`, `nanobind 3.1.0`, NumPy `2.4.4`, pandas `3.0.2`
+- **R stack**: R `4.5.3`, `cpp11 0.5.2`
+
+*(Note: passing `NOMINSIZE` overrides `nanobind`'s default `-Os` size-optimization flag so scalar loops and C++ dispatch compile with `-O3` identically across `pyrabind_bench_cpp`, `bench_module`, `raw_nb_bench`, `raw_py_bench`, and `raw_r_bench`.)*
+
+---
+
+## 1. Core FFI Dispatch & Class Methods (Median Latency)
+
+| Benchmark | C++ `-O3` | Python `pyrabind` | Raw `nanobind` | `pyrabind` / `nb` | Python raw C-API | R `pyrabind` | R raw `.Call` | `pyrabind` / raw (R) |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `noop()` | 0.2 ns | **15.9 ns** | 16.8 ns | **0.95x** | 10.8 ns | 314.4 ns | 112.5 ns | 2.80x |
+| `add_i64(17, 25)` | 0.2 ns | **34.2 ns** | 34.4 ns | **0.99x** | 28.6 ns | 412.3 ns | 145.2 ns | 2.84x |
+| `BenchPoint.dot` | 0.7 ns | **38.3 ns** | 37.9 ns | **1.01x** | 27.9 ns | 2.32 us | 191.6 ns | 12.09x |
+
+Caching the S3 `$` method lookup once in R (`pdot <- p1$dot; pdot(p2)`) reduces R `BenchPoint.dot` from **2.32 us** to **488.5 ns** (**2.55x** vs raw `.Call`).
+
+**Takeaway on Python**: Because `pyrabind` re-exports `::nanobind` directly without wrapper objects or extra indirection, dispatch latency sits at **0.95x-1.01x** of raw `nanobind` (**15.9 ns** `noop`, **34.2 ns** `add_i64`, **38.3 ns** `point_dot`), within **5-10 ns** of raw hand-written `METH_FASTCALL` CPython C-API.
+
+---
+
+## 2. NumPy, `ndarray`, Matrices & DataFrames (Median Latency)
+
+| Workload | C++ `-O3` | Python `pyrabind` (zero-copy) | Raw `nanobind` (zero-copy) | `pyrabind` / `nb` | `std::vector` copy (`pb` / `nb`) | Python raw C-API | Pure NumPy / pandas | R `pyrabind` (zero-copy) | R `std::vector` copy | R raw `.Call` | Pure base R |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dot_100k` | 55.26 us | **51.41 us** | 51.04 us | **1.01x** | 485.50 us / 485.06 us | 51.18 us | 3.25 us | **52.23 us** | 81.13 us | 52.04 us | 152.40 us |
+| `scale_100k` | 17.54 us | **13.71 us** | 13.56 us | **1.01x** | 998.19 us / 993.18 us | 11.28 us | 25.49 us | **31.45 us** | 52.71 us | 16.45 us | 56.28 us |
+| `mat_sum_256` | 34.59 us | **32.57 us** | 32.63 us | **1.00x** | -- | 32.79 us | 8.14 us | **33.26 us** | -- | 33.06 us | 76.42 us |
+| `df_transform_100k` | 138.51 us | 5.307 ms | 359.03 us | 14.78x | -- | 324.73 us | 476.40 us | 2.112 ms | -- | 19.60 us | 175.74 us |
+
+<Aside type="note" title="Why is df_transform_100k slower than raw nanobind / raw R?">
+Unlike `dot_100k` and `mat_sum_256` (which match raw `nanobind` and raw `.Call` at ~1.00x via zero-copy pointers), the `df_transform_100k` baselines intentionally compare **pass-through host object wiring** against **full C++ materialization**:
+
+1. **Zero-copy pass-through in `raw_nb_baseline` (359.03 us) and `raw_r_baseline` (19.60 us)**: Both raw baselines take `nb::object` / `SEXP`, forward the input `id`, `x`, and 100k-element `tag` string columns untouched (`out["tag"] = tag_col` / `SET_VECTOR_ELT(out, 3, tag_col)`), compute only `y` into a newly allocated array, and never allocate or copy 100,000 strings.
+2. **Full eager owning copy in `pyrabind::data_frame` (5.307 ms Python / 2.112 ms R)**: To expose pure host-independent C++ STL types (`std::vector<double>`, `std::vector<std::int64_t>`, `std::vector<std::string>` + per-row `validity` masks) with zero Python/R C-API calls inside user kernels, `type_caster<pyrabind::data_frame>` decodes and copies all 4 columns (2x100k strings round-tripped in/out plus numeric buffers and NA/NaN validity checks) and materializes a fresh `pandas.DataFrame` or R `data.frame`.
+
+**How to keep hot paths fast**: Pass numeric columns via `nb::ndarray<const T, nb::ndim<1>>` (51 us range) or exchange whole nullable tables zero-copy via `pyrabind/arrow.hpp` (`pyrabind::arrow_batch` with `pyarrow` / `nanoarrow`).
+</Aside>
+
+### Key Findings
+
+1. **Identical Python performance to upstream `nanobind` across every numerical workload**:
+   - With `-O3` (`NOMINSIZE`), `dot_100k` reaches **51.41 us** in `pyrabind` vs **51.04 us** in raw `nanobind` (`1.01x`).
+   - `scale_100k` runs in **13.71 us** (`pyrabind`) / **13.56 us** (raw `nanobind`) via zero-copy `nb::ndarray` + `nb::capsule` ownership transfer — faster than pure vectorized NumPy (**25.49 us**) and **~72x faster** than returning `std::vector<double>` (**998.19 us**).
+   - `mat_sum_256` matches raw `nanobind` and raw CPython C-API (**32.57 us** vs **32.63 us** / **32.79 us**, `1.00x`).
+2. **Zero-copy R matrices & vectors match raw `.Call`**:
+   - `dot_100k` (**52.23 us** vs **52.04 us** raw `.Call`, **2.92x faster** than base R `152.40 us`) and column-major `mat_sum_256` (**33.26 us** vs **33.06 us** raw `.Call`, **2.30x faster** than base R `76.42 us`) achieve native C speed with zero transposition.
+
+---
+
+## Reproducing Locally
+
+```bash
+cmake --preset release
+cmake --build build-release -j
+python3 benchmarks/run_all.py --build-dir build-release
+```
+
+Optionally pass `--python /path/to/python3` and `--json-out results.json`.

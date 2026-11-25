@@ -1,0 +1,188 @@
+---
+title: pyrabind
+description: Write one C++20 nanobind-style binding module and compile natively for Python 3 and R 4.
+template: splash
+hero:
+  tagline: Write one C++20 nanobind-style binding module -- compile simultaneously into a zero-overhead Python 3 extension and a fast, unwind-safe R 4 package. Named after pyra, the Poznan dialect word for potato, plus Python + R + bind.
+  image:
+    file: ../../assets/logo.svg
+    alt: pyrabind emblem -- golden Poznan potato (pyra) with twin sprouts bound by Python and R orbits
+  actions:
+    - text: Get Started
+      link: /pyrabind/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: API Reference
+      link: /pyrabind/api-reference/
+      variant: secondary
+    - text: View on GitHub
+      link: https://github.com/IgorPtak/pyrabind
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, Tabs, TabItem, LinkCard } from '@astrojs/starlight/components';
+
+<CardGrid stagger>
+  <Card title="One C++20 Source of Truth" icon="document">
+    Write bindings once using authentic `nanobind` idioms (`PYRABIND_MODULE`, `nb::class_`, `nb::enum_`, `nb::ndarray`, `nb::data_frame`) with zero backend `#ifdef`s in user modules.
+  </Card>
+  <Card title="Zero-Overhead Python Backend" icon="rocket">
+    `PYRABIND_TARGET_PYTHON` re-exports upstream `::nanobind` directly (`0.95x-1.01x` of raw `nanobind` in `-O3` benchmarks, down to 15.9 ns dispatch).
+  </Card>
+  <Card title="Unwind-Safe .External R Runtime" icon="puzzle">
+    `PYRABIND_TARGET_R` pairs `cpp11` unwind protection with stack-allocated `.External` argument decoding, hashed R class environments, and zero third-party CRAN runtime dependencies.
+  </Card>
+  <Card title="NumPy, Eigen, Arrow & DataFrames" icon="analytics">
+    Zero-copy strided `nb::ndarray`, `pyrabind/eigen.hpp` (`Map`/`Ref`/`DRef`), nullable `nb::data_frame`, and zero-copy Arrow C Data Interface (`pyarrow` and `nanoarrow`).
+  </Card>
+</CardGrid>
+
+## Quickstart Across Languages
+
+<Tabs>
+  <TabItem label="C++20 Module">
+```cpp
+#include "pyrabind/pyrabind.hpp"
+#include "pyrabind/ndarray.hpp"
+#include "pyrabind/operators.hpp"
+#include <cmath>
+#include <cstddef>
+
+namespace nb = pyrabind;
+
+struct Vec2 {
+    double x = 0.0, y = 0.0;
+    Vec2() = default;
+    Vec2(double xv, double yv) : x(xv), y(yv) {}
+    double norm() const { return std::hypot(x, y); }
+    Vec2 operator+(const Vec2& o) const { return {x + o.x, y + o.y}; }
+    Vec2 operator*(double s) const { return {x * s, y * s}; }
+};
+
+inline Vec2 operator*(double s, const Vec2& v) { return v * s; }
+
+static double array_dot(nb::ndarray<const double, nb::ndim<1>> a,
+                        nb::ndarray<const double, nb::ndim<1>> b) {
+    if (a.shape(0) != b.shape(0)) {
+        throw nb::value_error("vectors must have equal length");
+    }
+    auto va = a.view();
+    auto vb = b.view();
+    double acc = 0.0;
+    for (std::size_t i = 0; i < va.shape(0); ++i) {
+        acc += va(i) * vb(i);
+    }
+    return acc;
+}
+
+PYRABIND_MODULE(geometry, m) {
+    using namespace nb::literals;
+    m.doc() = "2D geometry module shared across Python and R";
+
+    nb::class_<Vec2>(m, "Vec2")
+        .def(nb::init<>())
+        .def(nb::init<double, double>(), "x"_a, "y"_a)
+        .def_rw("x", &Vec2::x)
+        .def_rw("y", &Vec2::y)
+        .def_prop_ro("norm", &Vec2::norm)
+        .def(nb::self + nb::self)
+        .def(nb::self * double())
+        .def(double() * nb::self);
+
+    m.def("array_dot", &array_dot, "a"_a, "b"_a);
+}
+```
+  </TabItem>
+  <TabItem label="CMake">
+```cmake
+find_package(pyrabind CONFIG REQUIRED)
+
+pyrabind_add_module(geometry SOURCES geometry.cpp)
+```
+  </TabItem>
+  <TabItem label="Python">
+```python
+import numpy as np
+import geometry as geo
+
+c = 2.0 * geo.Vec2(1.0, 2.0) + geo.Vec2(4.0, 6.0)
+print(c.x, c.y, c.norm)
+print(geo.array_dot(np.array([1.0, 2.0, 3.0]), np.array([4.0, 5.0, 6.0])))
+```
+  </TabItem>
+  <TabItem label="R">
+```r
+source("r/pyrabind.R")
+geo <- pyrabind_load("build-release/examples/geometry/r/geometry.so")
+
+c <- 2.0 * geo$Vec2(1.0, 2.0) + geo$Vec2(4.0, 6.0)
+print(c(c$x, c$y, c$norm))
+print(geo$array_dot(c(1.0, 2.0, 3.0), c(4.0, 5.0, 6.0)))
+```
+  </TabItem>
+</Tabs>
+
+## Guide Map
+
+<CardGrid>
+  <LinkCard
+    title="Getting Started & Build Guide"
+    href="/pyrabind/getting-started/"
+    description="Toolchains, CMake presets (release, default, asan-ubsan), stubgen, and dual Python wheel / R CMD INSTALL packaging."
+  />
+  <LinkCard
+    title="API Reference"
+    href="/pyrabind/api-reference/"
+    description="Functions, kw_only, call_guard, classes, single inheritance, static properties, operators, iterators, bind_vector/bind_map, enums, and exceptions."
+  />
+  <LinkCard
+    title="Type Conversions & Host Semantics"
+    href="/pyrabind/type-conversions/"
+    description="Scalars, strings, all 21 STL headers, smart pointers, complex, chrono, callbacks, and Python vs. R behavioral nuances."
+  />
+  <LinkCard
+    title="NumPy, Eigen, Arrow & DataFrames"
+    href="/pyrabind/ndarray-and-dataframes/"
+    description="Zero-copy strided ndarray views, Eigen dense/Map/Ref, nullable nb::data_frame tables, and Arrow C Data Interface bridges."
+  />
+  <LinkCard
+    title="Architecture Deep Dive"
+    href="/pyrabind/architecture/"
+    description="Zero-wrapper Python pass-through alongside unwind-safe .External R dispatch, pre-hashed environments, and keep_alive chains."
+  />
+  <LinkCard
+    title="Benchmarks (-O3)"
+    href="/pyrabind/benchmarks/"
+    description="Measured Release latencies across C++, Python (pyrabind, raw nanobind, C-API, NumPy/pandas), and R (pyrabind, raw .Call, base R)."
+  />
+</CardGrid>
+
+## Python vs. R Feature Parity Overview
+
+| Capability | Python (`nanobind`) | R (`cpp11` + `.External`) | Notes |
+| :--- | :--- | :--- | :--- |
+| Free functions & lambdas | Yes | Yes | Identical `m.def(...)` syntax |
+| Positional, keyword (`"x"_a`) & default args | Yes | Yes | Two-pass resolution (`convert = false` then `true`) |
+| `nb::kw_only()`, `nb::arg().noconvert()`, `.none()` | Yes | Yes | Keyword-only boundary tracked per overload in R |
+| `nb::call_guard<Guards...>()` & `gil_scoped_release` / `_acquire` | Yes | Yes | Stack-constructed guards; GIL guards are no-ops in single-threaded R |
+| Overloads & `nb::overload_cast` + `nb::const_` | Yes | Yes | Exact integer vs. float types in R (`5L` vs. `5.0`) |
+| `nb::class_<T>` & single base `class_<Derived, Base>` | Yes | Yes | Multiple inheritance is Python-only |
+| Constructors (`nb::init<...>`) & factories (`nb::new_`) | Yes | Yes | Relinquishable ownership for `unique_ptr` transfer |
+| Instance properties (`def_ro`, `def_rw`, `def_prop_ro`, `def_prop_rw`) | Yes (`obj.prop`) | Yes (`obj$prop`) | Pre-indexed hashed R environments |
+| Static methods & static properties (`def_static`, `def_*_static`) | Yes (`Cls.prop`) | Yes (`Cls$prop`) | Stored on `.pb_statics` and `.pb_static_props` in R |
+| Special methods (`__repr__`, `__len__`, `__getitem__`, `__setitem__`) | Yes | Yes (`print`/`format`, `length`, `[[`, `[[<-`) | `__contains__`: `v in x` (Py) / `` x$`__contains__`(v) `` (R) |
+| Arithmetic, bitwise, comparison, unary & in-place operators | Yes | Yes (`Ops` S3 + dunders) | S3 dispatch for `+ - * / %% & \| unary + - ! abs`; dunders for shifts/xor/`~`/in-place/`hash` |
+| Iterators (`make_iterator`, `make_key_iterator`, `make_value_iterator`) | Yes (`for` / `list`) | Yes (`as.list` / `$__next__()`) | Raises `StopIteration` / `pyrabind_stop_iteration` when exhausted |
+| Opaque containers (`PYRABIND_MAKE_OPAQUE`, `bind_vector`, `bind_map`) | Yes | Yes | Mutated by C++ reference without container copying |
+| Enumerations (`nb::enum_<E>`, `.export_values()`) | Yes | Yes (`Enum$Val`, `as.integer`, `==`/`!=`) | Bitwise `Enum \| Enum` is Python-only |
+| Lifetime policies (`rv_policy`, `keep_alive<Nurse, Patient>`) | Yes | Yes | Wired through `R_ExternalPtrProtected` in R |
+| Built-in & custom exceptions (`nb::exception<CustomError>`) | Python exceptions | R S3 conditions (`CustomError`, `pyrabind_*_error`) | Catchable with `try`/`except` (Py) or `tryCatch` (R) |
+| Smart pointers (`std::shared_ptr`, `std::unique_ptr`) | Yes | Yes | `unique_ptr` consumption marks moved-from wrapper invalid |
+| STL containers, `std::complex`, `std::chrono`, `std::list` | `<nanobind/stl/*.h>` | All 21 headers | Maps use `std::string` keys in R; `chrono` -> `difftime`/`POSIXct`; `complex` -> `CPLXSXP` |
+| Zero-copy `nb::ndarray` views & `capsule` returns | NumPy / buffer / DLPack | R vectors, matrices, arrays (`dim`) | Row-major C++ 2D outputs auto-transpose to column-major R |
+| Eigen dense matrices & zero-copy `Map`/`Ref` (`pyrabind/eigen.hpp`) | `<nanobind/eigen/dense.h>` | `pyrabind/r/eigen.hpp` (`DRef`/`DMap`/`DStride`/`DRef1`/`DMap1`/`DStride1`) | Optional compile-time dependency when `Eigen3` is present |
+| Nullable `nb::data_frame` | `pandas.DataFrame` & `dict` | `data.frame` & `tibble` | `float64`, `int64`, `int32`, `bool`, `std::string` + `validity` masks (`NA`/`None`/`NaN`/`pd.NA`) |
+| Arrow C Data Interface (`pyrabind/arrow.hpp`) | `__arrow_c_array__` PyCapsule (`pyarrow`) | `nanoarrow_array` / `nanoarrow_schema` externalptr | Move-only `pyrabind::arrow_batch`, `export_to_arrow`, `import_from_arrow` |
+| Stub & R wrapper generator (`tools/pyrabind_stubgen.py`) | PEP 484 `.pyi` stubs (`--verify`) | `roxygen2`-annotated R wrappers | Inspects compiled Python modules cleanly |
+| Dual Python/R packaging (`examples/pyra_stats`) | `scikit-build-core` wheel (`pip install`) | Native `R CMD INSTALL` package (`pyrastats`) | Shared C++20 `PYRABIND_MODULE` source + `testthat` & `unittest` |

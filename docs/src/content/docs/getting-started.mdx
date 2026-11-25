@@ -1,6 +1,11 @@
-# Getting Started & Build Guide
+---
+title: Getting Started & Build Guide
+description: Toolchain requirements, CMake presets and options, external projects, stub generation, dual Python/R packaging, and local docs preview.
+---
 
-This guide covers toolchain requirements, CMake presets and options, building external extensions against an installed `pyrabind`, and loading compiled modules in Python and R.
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers toolchain requirements, CMake presets and options, building external extensions against an installed `pyrabind`, loading compiled modules in Python and R, generating `.pyi` / R wrappers, and building Python + R distributable packages.
 
 ---
 
@@ -20,8 +25,9 @@ This guide covers toolchain requirements, CMake presets and options, building ex
 | **`cpp11`** (R package) | `0.5.2` | R backend (`PYRABIND_BUILD_R=ON`) | Header-only compile-time dependency; discovered via `FindCpp11.cmake` |
 | **`testthat`** (R package, optional) | `3.3.2` | Running native R package test suites | Used by `examples/pyra_stats/rpkg/tests/testthat` |
 
-> [!NOTE]
-> `r/pyrabind.R` and compiled R modules use **pure base R** at runtime — end users loading your compiled R extension do not need `cpp11` installed unless they recompile from C++ source.
+<Aside type="note">
+`r/pyrabind.R` and compiled R modules use **pure base R** at runtime — end users loading your compiled R extension do not need `cpp11` installed unless they recompile from C++ source.
+</Aside>
 
 ---
 
@@ -31,22 +37,30 @@ This guide covers toolchain requirements, CMake presets and options, building ex
 
 Three Ninja presets are configured in `CMakePresets.json`:
 
+<Tabs>
+  <TabItem label="Release (-O3)">
 ```bash
-# Release build (-O3 -DNDEBUG)
 cmake --preset release
 cmake --build build-release -j
 ctest --test-dir build-release --output-on-failure
-
-# Default debug/unoptimized development build
+```
+  </TabItem>
+  <TabItem label="Default (Debug)">
+```bash
 cmake --preset default
 cmake --build build -j
 ctest --test-dir build --output-on-failure
-
+```
+  </TabItem>
+  <TabItem label="ASan + UBSan">
+```bash
 # Address + UndefinedBehavior Sanitizer build (C++ core tests, non-MSVC)
 cmake --preset asan-ubsan
 cmake --build build-asan -j
 ctest --test-dir build-asan --output-on-failure
 ```
+  </TabItem>
+</Tabs>
 
 GitHub Actions CI additionally validates `windows-python-msvc` (Python backend under MSVC) and `windows-r-rtools` (R backend under Rtools MinGW `gcc`/`g++` linking `R.dll`), alongside `r_gctorture_tests` (`gctorture(TRUE)` stress coverage in `tests/r/test_gctorture.R`).
 
@@ -132,7 +146,7 @@ pyrabind_add_module(<name>
 )
 ```
 
-- **`SOURCES`** (required): One or more C++20 translation units defining `PYRABIND_MODULE(<name>, m)`.
+- **`SOURCES`** (required): One or more C++20 translation units defining `PYRABIND_MODULE(name, m)`.
 - **`NOMINSIZE`** (optional flag): Forwards `NOMINSIZE` to upstream `nanobind_add_module` so the Python target compiles with `-O3` rather than `nanobind`'s default `-Os` size optimization. Recommended for numerical loops and benchmarks.
 - **`OUTPUT_DIR`** (optional, defaults to `${CMAKE_CURRENT_BINARY_DIR}`): Python shared module is placed in `<OUTPUT_DIR>/python/` and R shared library in `<OUTPUT_DIR>/r/`.
 - **`LINK_LIBRARIES`** (optional): Additional CMake targets or libraries linked privately to both `<name>_py` and `<name>_r`.
@@ -142,8 +156,8 @@ pyrabind_add_module(<name>
 
 ## 4. Loading Compiled Modules
 
-### Python
-
+<Tabs>
+  <TabItem label="Python">
 Add `<OUTPUT_DIR>/python` to `PYTHONPATH` (or package into a wheel) and `import` normally:
 
 ```bash
@@ -153,9 +167,8 @@ PYTHONPATH=build-release/examples/geometry/python python3 examples/geometry/run_
 ```python
 import geometry
 ```
-
-### R
-
+  </TabItem>
+  <TabItem label="R">
 Source `r/pyrabind.R` (or `<prefix>/share/pyrabind/pyrabind.R`) once and call `pyrabind_load(path)` with the path to the compiled R shared library:
 
 ```bash
@@ -167,7 +180,9 @@ source("r/pyrabind.R")
 geo <- pyrabind_load("build-release/examples/geometry/r/geometry.so")
 ```
 
-`pyrabind_load(path)` registers the `pyrabind_*` S3 generics once per R session, `dyn.load`s the shared library, resolves the registered `.Call` / `.External` symbols, invokes the C++ module initializer, and returns an R environment containing all exported functions, classes, submodules, enums, and attributes.
+`pyrabind_load(path)` registers the `pyrabind_*` S3 generics once per R session, `dyn.load`s the shared library (or accepts a `DLLInfo` returned by `library.dynam()`), resolves the registered `.Call` / `.External` symbols, invokes the C++ module initializer, and returns an R environment containing all exported functions, classes, submodules, enums, and attributes.
+  </TabItem>
+</Tabs>
 
 ---
 
@@ -203,29 +218,34 @@ python3 tools/pyrabind_stubgen.py \
 
 The complete real-world packaging template in `examples/pyra_stats/` builds one shared C++20 source (`examples/pyra_stats/src/pyra_stats.cpp`) into both ecosystems:
 
-- **Python (`scikit-build-core`)**:
-  ```bash
-  pip install ./examples/pyra_stats
-  python3 -m unittest discover -s examples/pyra_stats/tests -v
-  ```
-- **R (`R CMD INSTALL` + `testthat`)**:
-  ```bash
-  R CMD INSTALL --no-multiarch examples/pyra_stats/rpkg
-  Rscript -e "library(pyrastats); testthat::test_dir('examples/pyra_stats/rpkg/tests/testthat', stop_on_failure = TRUE)"
-  ```
+<Tabs>
+  <TabItem label="Python Wheel (scikit-build-core)">
+```bash
+pip install ./examples/pyra_stats
+python3 -m unittest discover -s examples/pyra_stats/tests -v
+```
+  </TabItem>
+  <TabItem label="R Package (R CMD INSTALL)">
+```bash
+R CMD INSTALL --no-multiarch examples/pyra_stats/rpkg
+Rscript -e "library(pyrastats); testthat::test_dir('examples/pyra_stats/rpkg/tests/testthat', stop_on_failure = TRUE)"
+```
+  </TabItem>
+</Tabs>
 
-On package load, `examples/pyra_stats/rpkg/R/zzz.R` passes the `DLLInfo` returned by `library.dynam(...)` directly to `pyrabind_load(...)`.
+On package load, `examples/pyra_stats/rpkg/R/zzz.R` passes the `DLLInfo` returned by `getLoadedDLLs()[[pkgname]]` directly to `pyrabind_load(...)`.
 
 ---
 
-## 8. Building & Previewing the Documentation Site (MkDocs)
+## 8. Building & Previewing This Documentation Site (Astro Starlight)
 
-`pyrabind` ships an **MkDocs Material** site configured in `mkdocs.yml`. To preview locally or run the strict documentation build check:
+This documentation site is powered by **Astro Starlight** (`docs/astro.config.mjs`). To preview locally or build the static output:
 
 ```bash
-pip install -r docs/requirements.txt
-mkdocs serve
+cd docs
+npm ci
+npm run dev
 
-# Strict build verification (matching GitHub Actions CI & Pages deploy):
-mkdocs build --strict
+# Production static build verification:
+npm run build
 ```

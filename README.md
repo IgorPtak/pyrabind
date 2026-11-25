@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="pyrabind logo — Poznan potato (pyra) embracing Python and R" width="180">
+  <img src="docs/src/assets/logo.svg" alt="pyrabind logo -- Poznan potato (pyra) embracing Python and R" width="180">
 </p>
 
 <h1 align="center">pyrabind</h1>
@@ -142,15 +142,15 @@ Measured on Apple M4 (`macOS-27.0.1-arm64-arm-64bit`), Python `3.12.8`, `nanobin
 
 | Workload | C++ `-O3` | Python `pyrabind` | Raw `nanobind` | `pyrabind` / `nb` | R `pyrabind` | R raw `.Call` |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `noop()` | 0.5 ns | **15.8 ns** | 16.5 ns | **0.96x** | 311.3 ns | 115.5 ns |
-| `add_i64(17, 25)` | 0.4 ns | **33.1 ns** | 33.2 ns | **1.00x** | 408.7 ns | 146.9 ns |
-| `BenchPoint.dot` | 1.2 ns | **38.4 ns** | 36.7 ns | **1.05x** | 2.36 us (`487.2 ns` cached) | 188.8 ns |
-| `dot_100k` (`ndarray`) | 51.53 us | **51.72 us** | 51.73 us | **1.00x** | **52.98 us** | 52.66 us |
-| `scale_100k` (`ndarray`) | 16.63 us | **10.21 us** | 13.79 us | **0.74x** | 30.05 us | 16.30 us |
-| `mat_sum_256` (`ndarray`) | 33.10 us | **32.85 us** | 32.83 us | **1.00x** | **32.94 us** | 32.61 us |
-| `df_transform_100k` | 135.47 us | 3.539 ms | 346.19 us (pass-through) | 10.22x | 1.970 ms | 19.72 us |
+| `noop()` | 0.2 ns | **15.9 ns** | 16.8 ns | **0.95x** | 314.4 ns | 112.5 ns |
+| `add_i64(17, 25)` | 0.2 ns | **34.2 ns** | 34.4 ns | **0.99x** | 412.3 ns | 145.2 ns |
+| `BenchPoint.dot` | 0.7 ns | **38.3 ns** | 37.9 ns | **1.01x** | 2.32 us (`488.5 ns` cached) | 191.6 ns |
+| `dot_100k` (`ndarray`) | 55.26 us | **51.41 us** | 51.04 us | **1.01x** | **52.23 us** | 52.04 us |
+| `scale_100k` (`ndarray`) | 17.54 us | **13.71 us** | 13.56 us | **1.01x** | 31.45 us | 16.45 us |
+| `mat_sum_256` (`ndarray`) | 34.59 us | **32.57 us** | 32.63 us | **1.00x** | **33.26 us** | 33.06 us |
+| `df_transform_100k` | 138.51 us | 5.307 ms | 359.03 us (pass-through) | 14.78x | 2.112 ms | 19.60 us |
 
-See [docs/benchmarks.md](docs/benchmarks.md) for the complete dataset, `std::vector` copy numbers, raw CPython C-API baselines, and reproduction instructions.
+See [Benchmarks (Starlight)](https://igorptak.github.io/pyrabind/benchmarks/) ([source](docs/src/content/docs/benchmarks.mdx)) for the complete dataset, why eager `data_frame` materialization differs from pass-through baselines, raw CPython C-API baselines, and reproduction instructions.
 
 ---
 
@@ -181,18 +181,22 @@ Dual-target packaging examples live in [`examples/geometry`](examples/geometry) 
 
 ## Documentation
 
-- [Documentation Home](docs/index.md) — guide map and Python/R feature-parity matrix
-- [Getting Started & Build Guide](docs/getting-started.md) — prerequisites, CMake options, installing, external projects, MkDocs preview
-- [API Reference](docs/api-reference.md) — functions, `kw_only`, `call_guard`, classes, inheritance, static/instance properties, operators, iterators, `bind_vector`/`bind_map`, enums, lifetimes, custom exceptions
-- [Type Conversions & Python/R Semantics](docs/type-conversions.md) — scalars, all 21 STL/container/smart-pointer headers (`stl.hpp` + `bind_vector`/`bind_map`), `complex`, `chrono`, callbacks, portability differences
-- [NumPy, `ndarray`, Eigen, Arrow & `data_frame`](docs/ndarray-and-dataframes.md) — zero-copy arrays, column-major R layout, Eigen dense/`Map`/`Ref`, nullable DataFrames, Arrow C Data Interface
-- [Architecture Deep Dive](docs/architecture.md) — Python pass-through and R `cpp11` / `.External` / hashed-environment internals
-- [Overhead & Data-Science Benchmarks](docs/benchmarks.md) — full Release `-O3` benchmark results
+- [Documentation Home](https://igorptak.github.io/pyrabind/) ([source](docs/src/content/docs/index.mdx)) — guide map and Python/R feature-parity matrix
+- [Getting Started & Build Guide](https://igorptak.github.io/pyrabind/getting-started/) ([source](docs/src/content/docs/getting-started.mdx)) — prerequisites, CMake options, installing, stubgen, dual Python/R packaging
+- [API Reference](https://igorptak.github.io/pyrabind/api-reference/) ([source](docs/src/content/docs/api-reference.mdx)) — functions, `kw_only`, `call_guard`, classes, inheritance, static/instance properties, operators, iterators, `bind_vector`/`bind_map`, enums, lifetimes, custom exceptions
+- [Type Conversions & Python/R Semantics](https://igorptak.github.io/pyrabind/type-conversions/) ([source](docs/src/content/docs/type-conversions.mdx)) — scalars, all 21 STL/container/smart-pointer headers (`stl.hpp` + `bind_vector`/`bind_map`), `complex`, `chrono`, callbacks, portability differences
+- [NumPy, `ndarray`, Eigen, Arrow & `data_frame`](https://igorptak.github.io/pyrabind/ndarray-and-dataframes/) ([source](docs/src/content/docs/ndarray-and-dataframes.mdx)) — zero-copy arrays, column-major R layout, Eigen dense/`Map`/`Ref`, nullable DataFrames, Arrow C Data Interface
+- [Architecture Deep Dive](https://igorptak.github.io/pyrabind/architecture/) ([source](docs/src/content/docs/architecture.mdx)) — Python pass-through and R `cpp11` / `.External` / hashed-environment internals
+- [Overhead & Data-Science Benchmarks](https://igorptak.github.io/pyrabind/benchmarks/) ([source](docs/src/content/docs/benchmarks.mdx)) — full Release `-O3` benchmark results
 - [Agent Guidelines](AGENTS.md), [R Backend Invariants](include/pyrabind/r/AGENTS.md), and [Contributing Guide](CONTRIBUTING.md)
 
-Preview the documentation site locally with MkDocs Material:
+Preview or build the **Astro Starlight** documentation site locally:
 
 ```bash
-pip install -r docs/requirements.txt
-mkdocs serve
+cd docs
+npm ci
+npm run dev
+
+# Production static build:
+npm run build
 ```

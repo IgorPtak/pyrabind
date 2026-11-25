@@ -1,4 +1,9 @@
-# Type Conversions & Python/R Semantics
+---
+title: Type Conversions & Host Semantics
+description: Scalars, strings, all 21 pyrabind/stl headers, smart pointers, complex, chrono, bidirectional callbacks, and Python vs. R behavioral nuances.
+---
+
+import { Aside } from '@astrojs/starlight/components';
 
 `pyrabind` maps C++ fundamental types, strings, STL containers, and callbacks to idiomatic **Python** objects (via upstream `nanobind`) and **R** objects (via `cpp11` and base R SEXP casters).
 
@@ -14,7 +19,7 @@
 | Signed integers (`int`, `int32_t`, `int64_t`) | `int` | `integer(1)` (`INTSXP`) or `numeric(1)` (`REALSXP`) | R inputs prefer `INTSXP` (`5L`) in Pass 1; outputs in `(NA_INTEGER, 2147483647]` return `integer(1)`, larger magnitudes return `double(1)` (exact up to `2^53`) |
 | Unsigned integers (`uint32_t`, `uint64_t`) | `int` | `integer(1)` or `numeric(1)` | Rejects negative inputs; outputs `<= 2147483647` return `integer(1)`, larger return `double(1)` |
 | `float`, `double` | `float` | `numeric(1)` (`REALSXP`) | In Pass 2 (`convert=true`), R `integer`/`logical` scalars promote to `double` |
-| `std::string`, `std::string_view`, `const char*` | `str` (UTF-8) | `character(1)` (`STRSXP`, UTF-8) | R fast-path copies pure ASCII/UTF-8 bytes directly without `unwind_protect`; `NA_character_` (`NA_STRING`) fails conversion; `const char*` maps `None`/`NULL` <-> `nullptr` |
+| `std::string`, `std::string_view`, `const char*` | `str` (UTF-8) | `character(1)` (`STRSXP`, UTF-8) | R fast-path copies pure ASCII/UTF-8 bytes directly without `unwind_protect`; `NA_character_` (`NA_STRING`) fails conversion; `const char*` maps `None`/`NULL` to/from `nullptr` |
 | `pyrabind::none_t` / `std::nullptr_t` | `None` | `NULL` (`R_NilValue`) | Also produced by `nb::none()` defaults |
 
 ---
@@ -73,6 +78,11 @@ std::function<int(int)> make_adder(int k);
 
 Even with one shared C++ source file, Python and R have different host-language conventions:
 
+<Aside type="tip" title="R integer vs double literals & hot-loop caching">
+- In R, bare numbers like `7` are `double` (`REALSXP`), whereas `7L` is `integer` (`INTSXP`). When overloading `fn(int)` vs `fn(double)`, pass `7L` for strict Pass 1 integer matching.
+- Cache method lookups in tight R loops: extracting `pdot <- obj$dot` once drops R method dispatch latency from `~2.32 us` down to `488.5 ns`.
+</Aside>
+
 1. **Overload matching on numeric literals in R**:
    - In R, bare numeric literals (`7`) have type `double` (`REALSXP`), whereas `7L` has type `integer` (`INTSXP`).
    - Because Pass 1 skips implicit widening/narrowing, calling an overloaded function `classify(int)` vs `classify(double)` from R dispatches `tm$classify(7L)` to `int` and `tm$classify(7.5)` or `tm$classify(7)` to `double`.
@@ -83,7 +93,7 @@ Even with one shared C++ source file, Python and R have different host-language 
 4. **Membership (`__contains__`) in R**:
    - Python compiles `x in obj` to `__contains__`. Base R has no S3 generic hook on `%in%`, so call `` obj$`__contains__`(val) `` when testing membership from R.
 5. **Caching R `$` lookups in hot loops**:
-   - Calling `obj$method(...)` inside a tight R loop performs one `$` method environment lookup per iteration (`~2.36 us` on `BenchPoint.dot`). Extracting the bound closure once before the loop (`pdot <- obj$dot; pdot(other)`) drops R call latency to **`487.2 ns`**.
+   - Calling `obj$method(...)` inside a tight R loop performs one `$` method environment lookup per iteration (`~2.32 us` on `BenchPoint.dot`). Extracting the bound closure once before the loop (`pdot <- obj$dot; pdot(other)`) drops R call latency to **`488.5 ns`**.
 6. **Single inheritance limit in R**:
    - `nb::class_<Derived, Base>` supports one base class in `pyrabind/r/backend.hpp` (enforced by `static_assert(sizeof...(Bases) <= 1)`).
 7. **Interactive tab completion in R**:

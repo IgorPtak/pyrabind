@@ -158,7 +158,7 @@ struct data_frame {
 
 ### Performance Guidance
 
-`nb::data_frame` eagerly materializes all columns across the C++/host boundary (including `std::string` allocations per string element), taking **5.307 ms** in Python and **2.112 ms** in R on 100k rows (`id`, `x`, `y`, `tag`). When only numeric columns are needed in a hot loop, extract columns in host code and pass individual `nb::ndarray<const T, nb::ndim<1>>` parameters instead for sub-100 us latency, or use `pyrabind/arrow.hpp` for zero-copy structured tables.
+`nb::data_frame` eagerly materializes all columns across the C++/host boundary (including `std::string` allocations per string element), taking **4.627 ms** in Python and **1.973 ms** in R on 100k rows (`id`, `x`, `y`, `tag`). When only numeric columns are needed or when large string columns pass through untouched, use **`nb::arrow_batch_view`** (`pyrabind/arrow.hpp`) or individual **`nb::ndarray`** arguments for sub-100 us zero-copy throughput (**26.33 us** in Python, **98.90 us** in R).
 
 ---
 
@@ -190,9 +190,36 @@ Use dynamic-stride aliases (`nb::DRef<Eigen::MatrixXd>` / `nb::DRef<const Eigen:
 
 Include `#include "pyrabind/arrow.hpp"` (which bundles self-contained Arrow C Data definitions in `pyrabind/arrow_abi.hpp`) to pass columnar struct batches cleanly between C++, `pyarrow`, and R `nanoarrow`:
 
-- **`pyrabind::arrow_batch`**: Move-only RAII wrapper managing paired `ArrowSchema` and `ArrowArray` structs (`is_valid()`, `release()`).
+- **`pyrabind::arrow_batch`**: Move-only RAII wrapper managing paired `ArrowSchema` and `ArrowArray` structs (`is_valid()`, `release()`, `.view()`, `.insert_column(...)`, `.with_column(...)`).
+- **`pyrabind::arrow_batch_view`**: Non-destructive, zero-copy borrowed batch view holding shared upstream ownership across both Python (`__arrow_c_array__`) and R (`nanoarrow_array` externalptr):
+  - `column_span<T>(idx_or_name)` -> zero-copy `arrow_span<T>` (`double`, `float`, `std::int64_t`, `std::int32_t`, `std::uint8_t`) with `.data()`, `.size()`, `[i]`, `.has_nulls()`, `.is_null(i)`.
+  - `string_column_view(idx_or_name)` -> zero-copy `arrow_string_view` supporting `"u"` (`int32`) and `"U"` (`int64`) UTF-8 offset buffers returning `std::string_view` per row.
+  - `insert_column(pos, name, col, val_mask = {})` and `with_column(name, col, val_mask = {})` -> return a new `arrow_batch` passing all untouched upstream columns through **zero-copy** while appending or replacing only the computed column.
+
+```cpp
+#include "pyrabind/arrow.hpp"
+
+nb::arrow_batch add_y_column(const nb::arrow_batch_view& batch) {
+    const std::size_t n = batch.nrows();
+    auto sx = batch.column_span<double>("x");
+    std::vector<double> y(n);
+    if (batch.column_format("id") == "l") {
+        auto sid = batch.column_span<std::int64_t>("id");
+        for (std::size_t i = 0; i < n; ++i) {
+            y[i] = sx[i] * 2.0 + static_cast<double>(sid[i]);
+        }
+    } else {
+        auto sid = batch.column_span<std::int32_t>("id");
+        for (std::size_t i = 0; i < n; ++i) {
+            y[i] = sx[i] * 2.0 + static_cast<double>(sid[i]);
+        }
+    }
+    return batch.insert_column(2, "y", std::move(y));
+}
+```
+
 - **`export_to_arrow(data_frame)`**: Builds a zero-copy struct (`"+s"`) `arrow_batch` with Arrow validity bitmaps and UTF-8 offset/byte buffers kept alive via shared ownership. Supports `double` (`"g"`), `int64` (`"l"`), `int32` (`"i"`), `bool` (`"b"`), and `std::string` (`"u"`).
 - **`import_from_arrow(const arrow_batch&)`**: Reads struct (`"+s"`) batches back into `pyrabind::data_frame` (`"g"`, `"f"`, `"l"`, `"i"`, `"b"`, `"u"`, `"U"` plus validity bitmaps).
 - **Host interop**:
   - **Python**: Accepts any object exposing `__arrow_c_array__` (such as `pyarrow.RecordBatch`) and returns a capsule holder implementing the Arrow PyCapsule Protocol (`__arrow_c_array__`) consumable directly by `pyarrow.record_batch(...)`.
-  - **R**: Accepts `nanoarrow_array` external pointers (reading the paired `nanoarrow_schema` stored in `R_ExternalPtrTag` or `"schema"` attribute) and returns an R `nanoarrow_array` external pointer with its `nanoarrow_schema` attached on `R_ExternalPtrTag`.
+  - **R**: Accepts `nanoarrow_array` external pointers (reading the paired `nanoarrow_schema` stored in `R_ExternalPtrTag` or `"schema"` attribute; `arrow_batch_view` retains the R object non-destructively so it stays reusable across repeated calls) and returns an R `nanoarrow_array` external pointer with its `nanoarrow_schema` attached on `R_ExternalPtrTag`.

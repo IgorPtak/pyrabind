@@ -130,7 +130,7 @@ print(geo$array_dot(c(1.0, 2.0, 3.0), c(4.0, 5.0, 6.0)))
 | `pyrabind/ndarray.hpp` | `<nanobind/ndarray.h>` (NumPy/DLPack) | Zero-copy R vectors/matrices + `capsule` return |
 | `pyrabind/eigen.hpp` | `<nanobind/eigen/dense.h>` | `Eigen::Matrix`/`Array`/`Map`/`Ref` + `DRef`/`DMap`/`DStride`/`DRef1`/`DMap1`/`DStride1` |
 | `pyrabind/dataframe.hpp` | Nullable `pandas.DataFrame` / `dict` caster (`validity`) | Nullable native `data.frame` / `tibble` caster (`NA` masks) |
-| `pyrabind/arrow.hpp` & `arrow_abi.hpp` | `__arrow_c_array__` PyCapsule (`pyarrow` interop) | `nanoarrow_array` / `nanoarrow_schema` externalptr (`nanoarrow` interop) |
+| `pyrabind/arrow.hpp` & `arrow_abi.hpp` | `__arrow_c_array__` PyCapsule (`pyarrow` interop, `arrow_batch_view`) | `nanoarrow_array` / `nanoarrow_schema` externalptr (`arrow_batch_view` zero-copy borrow) |
 | `pyrabind/operators.hpp` | `<nanobind/operators.h>` | `nb::self` expression templates (`+ - * / %% & \| unary + - ! ~ abs hash`) & `Ops` S3 dispatch |
 | `pyrabind/stl.hpp` & `pyrabind/stl/*.hpp` | `<nanobind/stl/*.h>` | 21 STL/smart-pointer/chrono/complex/container headers (`bind_vector`, `bind_map`, atomic/list/functional casters) |
 
@@ -142,13 +142,14 @@ Measured on Apple M4 (`macOS-27.0.1-arm64-arm-64bit`), Python `3.12.8`, `nanobin
 
 | Workload | C++ `-O3` | Python `pyrabind` | Raw `nanobind` | `pyrabind` / `nb` | R `pyrabind` | R raw `.Call` |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `noop()` | 0.2 ns | **15.9 ns** | 16.8 ns | **0.95x** | 314.4 ns | 112.5 ns |
-| `add_i64(17, 25)` | 0.2 ns | **34.2 ns** | 34.4 ns | **0.99x** | 412.3 ns | 145.2 ns |
-| `BenchPoint.dot` | 0.7 ns | **38.3 ns** | 37.9 ns | **1.01x** | 2.32 us (`488.5 ns` cached) | 191.6 ns |
-| `dot_100k` (`ndarray`) | 55.26 us | **51.41 us** | 51.04 us | **1.01x** | **52.23 us** | 52.04 us |
-| `scale_100k` (`ndarray`) | 17.54 us | **13.71 us** | 13.56 us | **1.01x** | 31.45 us | 16.45 us |
-| `mat_sum_256` (`ndarray`) | 34.59 us | **32.57 us** | 32.63 us | **1.00x** | **33.26 us** | 33.06 us |
-| `df_transform_100k` | 138.51 us | 5.307 ms | 359.03 us (pass-through) | 14.78x | 2.112 ms | 19.60 us |
+| `noop()` | 0.5 ns | **14.9 ns** | 14.4 ns | **1.03x** | 304.7 ns | 113.6 ns |
+| `add_i64(17, 25)` | 0.4 ns | **32.3 ns** | 32.0 ns | **1.01x** | 396.7 ns | 146.1 ns |
+| `BenchPoint.dot` | 1.2 ns | **36.3 ns** | 36.0 ns | **1.01x** | 2.24 us (`476.4 ns` cached) | 186.7 ns |
+| `dot_100k` (`ndarray`) | 51.13 us | **51.44 us** | 51.32 us | **1.00x** | **51.46 us** | 51.41 us |
+| `scale_100k` (`ndarray`) | 15.82 us | **13.01 us** | 13.14 us | **0.99x** | 28.16 us | 15.62 us |
+| `mat_sum_256` (`ndarray`) | 32.25 us | **32.46 us** | 32.49 us | **1.00x** | **32.90 us** | 32.47 us |
+| `df_transform_100k` (eager copy) | 127.09 us | 4.627 ms | 346.62 us (pass-through) | 13.35x | 1.973 ms | 19.33 us |
+| `arrow_transform_100k` (zero-copy) | 24.14 us | **26.33 us** | **26.79 us** | **0.98x** | **98.90 us** | 70.47 us |
 
 See [Benchmarks (Starlight)](https://igorptak.github.io/pyrabind/benchmarks/) ([source](docs/src/content/docs/benchmarks.mdx)) for the complete dataset, why eager `data_frame` materialization differs from pass-through baselines, raw CPython C-API baselines, and reproduction instructions.
 

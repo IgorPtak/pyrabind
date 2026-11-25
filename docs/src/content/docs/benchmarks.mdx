@@ -32,42 +32,41 @@ Measured in full `-O3` Release mode (`-DCMAKE_BUILD_TYPE=Release` with `NOMINSIZ
 
 | Benchmark | C++ `-O3` | Python `pyrabind` | Raw `nanobind` | `pyrabind` / `nb` | Python raw C-API | R `pyrabind` | R raw `.Call` | `pyrabind` / raw (R) |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `noop()` | 0.2 ns | **15.9 ns** | 16.8 ns | **0.95x** | 10.8 ns | 314.4 ns | 112.5 ns | 2.80x |
-| `add_i64(17, 25)` | 0.2 ns | **34.2 ns** | 34.4 ns | **0.99x** | 28.6 ns | 412.3 ns | 145.2 ns | 2.84x |
-| `BenchPoint.dot` | 0.7 ns | **38.3 ns** | 37.9 ns | **1.01x** | 27.9 ns | 2.32 us | 191.6 ns | 12.09x |
+| `noop()` | 0.5 ns | **14.9 ns** | 14.4 ns | **1.03x** | 10.4 ns | 304.7 ns | 113.6 ns | 2.68x |
+| `add_i64(17, 25)` | 0.4 ns | **32.3 ns** | 32.0 ns | **1.01x** | 27.1 ns | 396.7 ns | 146.1 ns | 2.71x |
+| `BenchPoint.dot` | 1.2 ns | **36.3 ns** | 36.0 ns | **1.01x** | 27.5 ns | 2.24 us | 186.7 ns | 11.98x |
 
-Caching the S3 `$` method lookup once in R (`pdot <- p1$dot; pdot(p2)`) reduces R `BenchPoint.dot` from **2.32 us** to **488.5 ns** (**2.55x** vs raw `.Call`).
+Caching the S3 `$` method lookup once in R (`pdot <- p1$dot; pdot(p2)`) reduces R `BenchPoint.dot` from **2.24 us** to **476.4 ns** (**2.55x** vs raw `.Call`).
 
-**Takeaway on Python**: Because `pyrabind` re-exports `::nanobind` directly without wrapper objects or extra indirection, dispatch latency sits at **0.95x-1.01x** of raw `nanobind` (**15.9 ns** `noop`, **34.2 ns** `add_i64`, **38.3 ns** `point_dot`), within **5-10 ns** of raw hand-written `METH_FASTCALL` CPython C-API.
+**Takeaway on Python**: Because `pyrabind` re-exports `::nanobind` directly without wrapper objects or extra indirection, dispatch latency sits at **0.98x-1.03x** of raw `nanobind` (**14.9 ns** `noop`, **32.3 ns** `add_i64`, **36.3 ns** `point_dot`), within **5-10 ns** of raw hand-written `METH_FASTCALL` CPython C-API.
 
 ---
 
-## 2. NumPy, `ndarray`, Matrices & DataFrames (Median Latency)
+## 2. NumPy, `ndarray`, Matrices, Arrow & DataFrames (Median Latency)
 
-| Workload | C++ `-O3` | Python `pyrabind` (zero-copy) | Raw `nanobind` (zero-copy) | `pyrabind` / `nb` | `std::vector` copy (`pb` / `nb`) | Python raw C-API | Pure NumPy / pandas | R `pyrabind` (zero-copy) | R `std::vector` copy | R raw `.Call` | Pure base R |
+| Workload | C++ `-O3` | Python `pyrabind` (zero-copy) | Raw `nanobind` (zero-copy) | `pyrabind` / `nb` | `std::vector` copy (`pb` / `nb`) | Python raw C-API | Pure NumPy / pandas / pyarrow | R `pyrabind` (zero-copy) | R `std::vector` copy | R raw `.Call` | Pure base R |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `dot_100k` | 55.26 us | **51.41 us** | 51.04 us | **1.01x** | 485.50 us / 485.06 us | 51.18 us | 3.25 us | **52.23 us** | 81.13 us | 52.04 us | 152.40 us |
-| `scale_100k` | 17.54 us | **13.71 us** | 13.56 us | **1.01x** | 998.19 us / 993.18 us | 11.28 us | 25.49 us | **31.45 us** | 52.71 us | 16.45 us | 56.28 us |
-| `mat_sum_256` | 34.59 us | **32.57 us** | 32.63 us | **1.00x** | -- | 32.79 us | 8.14 us | **33.26 us** | -- | 33.06 us | 76.42 us |
-| `df_transform_100k` | 138.51 us | 5.307 ms | 359.03 us | 14.78x | -- | 324.73 us | 476.40 us | 2.112 ms | -- | 19.60 us | 175.74 us |
+| `dot_100k` | 51.13 us | **51.44 us** | 51.32 us | **1.00x** | 468.78 us / 469.48 us | 51.35 us | 3.25 us | **51.46 us** | 76.60 us | 51.41 us | 143.43 us |
+| `scale_100k` | 15.82 us | **13.01 us** | 13.14 us | **0.99x** | 1.000 ms / 993.53 us | 12.84 us | 24.79 us | **28.16 us** | 50.14 us | 15.62 us | 51.86 us |
+| `mat_sum_256` | 32.25 us | **32.46 us** | 32.49 us | **1.00x** | -- | 32.67 us | 8.09 us | **32.90 us** | -- | 32.47 us | 75.41 us |
+| `df_transform_100k` | 127.09 us | 4.627 ms | 346.62 us | 13.35x | -- | 309.94 us | 430.38 us | 1.973 ms | -- | 19.33 us | 176.61 us |
+| `arrow_transform_100k` | 24.14 us | **26.33 us** | **26.79 us** | **0.98x** | -- | -- | 65.53 us (`pyarrow`) | **98.90 us** | -- | 70.47 us | -- |
 
-<Aside type="note" title="Why is df_transform_100k slower than raw nanobind / raw R?">
-Unlike `dot_100k` and `mat_sum_256` (which match raw `nanobind` and raw `.Call` at ~1.00x via zero-copy pointers), the `df_transform_100k` baselines intentionally compare **pass-through host object wiring** against **full C++ materialization**:
-
-1. **Zero-copy pass-through in `raw_nb_baseline` (359.03 us) and `raw_r_baseline` (19.60 us)**: Both raw baselines take `nb::object` / `SEXP`, forward the input `id`, `x`, and 100k-element `tag` string columns untouched (`out["tag"] = tag_col` / `SET_VECTOR_ELT(out, 3, tag_col)`), compute only `y` into a newly allocated array, and never allocate or copy 100,000 strings.
-2. **Full eager owning copy in `pyrabind::data_frame` (5.307 ms Python / 2.112 ms R)**: To expose pure host-independent C++ STL types (`std::vector<double>`, `std::vector<std::int64_t>`, `std::vector<std::string>` + per-row `validity` masks) with zero Python/R C-API calls inside user kernels, `type_caster<pyrabind::data_frame>` decodes and copies all 4 columns (2x100k strings round-tripped in/out plus numeric buffers and NA/NaN validity checks) and materializes a fresh `pandas.DataFrame` or R `data.frame`.
-
-**How to keep hot paths fast**: Pass numeric columns via `nb::ndarray<const T, nb::ndim<1>>` (51 us range) or exchange whole nullable tables zero-copy via `pyrabind/arrow.hpp` (`pyrabind::arrow_batch` with `pyarrow` / `nanoarrow`).
+<Aside type="note" title="Zero-Copy Arrow vs. Eager data_frame Materialization">
+1. **`arrow_transform_100k` achieves full raw `nanobind` parity (`26.33 us` vs `26.79 us`, `0.98x` — 2.49x faster than pure `pyarrow` and 175x faster than eager `df_transform_100k`)**: Using `nb::arrow_batch_view` (`column_span<T>` + `insert_column`) inspects `id` and `x` directly from borrowed Arrow buffers and passes untouched columns (`id`, `x`, and all 100k `tag` strings) through with zero bytes copied. In R, `arrow_transform_100k` runs in **98.90 us** (compared to **1.973 ms** for eager `data_frame`, **20x faster**).
+2. **Why `df_transform_100k` (`4.627 ms` / `1.973 ms`) differs from `raw_nb_baseline` (`346.62 us`) and `raw_r_baseline` (`19.33 us`)**: The raw baselines pass `id`, `x`, and the 100k-element `tag` string column through untouched by host handle without inspecting or copying strings. `pyrabind::data_frame` eagerly converts all 4 columns (2x100k `std::string`/`PyUnicode`/`CHARSXP` allocations) so user C++ code works solely with `std::vector` and `validity` masks. Choose `nb::arrow_batch_view` or `nb::ndarray` whenever tabular transformations touch large string columns.
 </Aside>
 
 ### Key Findings
 
-1. **Identical Python performance to upstream `nanobind` across every numerical workload**:
-   - With `-O3` (`NOMINSIZE`), `dot_100k` reaches **51.41 us** in `pyrabind` vs **51.04 us** in raw `nanobind` (`1.01x`).
-   - `scale_100k` runs in **13.71 us** (`pyrabind`) / **13.56 us** (raw `nanobind`) via zero-copy `nb::ndarray` + `nb::capsule` ownership transfer — faster than pure vectorized NumPy (**25.49 us**) and **~72x faster** than returning `std::vector<double>` (**998.19 us**).
-   - `mat_sum_256` matches raw `nanobind` and raw CPython C-API (**32.57 us** vs **32.63 us** / **32.79 us**, `1.00x`).
-2. **Zero-copy R matrices & vectors match raw `.Call`**:
-   - `dot_100k` (**52.23 us** vs **52.04 us** raw `.Call`, **2.92x faster** than base R `152.40 us`) and column-major `mat_sum_256` (**33.26 us** vs **33.06 us** raw `.Call`, **2.30x faster** than base R `76.42 us`) achieve native C speed with zero transposition.
+1. **Identical Python performance to upstream `nanobind` across every zero-copy workload**:
+   - With `-O3` (`NOMINSIZE`), `dot_100k` reaches **51.44 us** in `pyrabind` vs **51.32 us** in raw `nanobind` (`1.00x`).
+   - `scale_100k` runs in **13.01 us** (`pyrabind`) / **13.14 us** (raw `nanobind`) via zero-copy `nb::ndarray` + `nb::capsule` ownership transfer — faster than pure vectorized NumPy (**24.79 us**) and **~76x faster** than returning `std::vector<double>` (**1.000 ms**).
+   - `mat_sum_256` matches raw `nanobind` and raw CPython C-API (**32.46 us** vs **32.49 us** / **32.67 us**, `1.00x`).
+   - `arrow_transform_100k` reaches **26.33 us** in `pyrabind` vs **26.79 us** in raw `nanobind` (`0.98x`) and **24.14 us** in pure C++ `-O3`.
+2. **Zero-copy R matrices, vectors & Arrow batches match native C**:
+   - `dot_100k` (**51.46 us** vs **51.41 us** raw `.Call`, **2.79x faster** than base R `143.43 us`) and column-major `mat_sum_256` (**32.90 us** vs **32.47 us** raw `.Call`, **2.29x faster** than base R `75.41 us`) achieve native C speed with zero transposition.
+   - `arrow_transform_100k` runs in **98.90 us** in R vs **1.973 ms** for eager `data_frame` copies (**20x speedup**).
 
 ---
 
